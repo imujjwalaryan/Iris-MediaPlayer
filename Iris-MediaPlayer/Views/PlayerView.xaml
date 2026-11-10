@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Iris_MediaPlayer.Views.PlayerView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid x:Name="PlayerRoot" Background="#0D0F15" CornerRadius="15"
+          PointerMoved="Player_PointerMoved" KeyDown="Player_KeyDown">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="Escape" Invoked="PlayerKeyboardAccelerator_Invoked" />
+            <KeyboardAccelerator Key="F" Invoked="PlayerKeyboardAccelerator_Invoked" />
+            <KeyboardAccelerator Key="Space" Invoked="PlayerKeyboardAccelerator_Invoked" />
+        </Grid.KeyboardAccelerators>
+
+        <Grid x:Name="VideoHost" Grid.Row="1" Background="Transparent" SizeChanged="VideoHost_SizeChanged"
+              PointerMoved="Player_PointerMoved">
+            <SwapChainPanel x:Name="VideoPanel" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                            PointerMoved="Player_PointerMoved" />
+            <StackPanel x:Name="PlayerStatus" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Spacing="10" IsHitTestVisible="False">
+                <ProgressRing x:Name="PlaybackProgress" IsActive="False" Width="36" Height="36" />
+                <TextBlock x:Name="PlaybackStatusText" Text="Choose a video to start playback."
+                           HorizontalAlignment="Center" Opacity="0.76" />
+            </StackPanel>
+        </Grid>
+
+        <Grid x:Name="PlayerHeaderBar" VerticalAlignment="Top" Padding="18,12" CornerRadius="15,15,0,0"
+              Background="#B3000000">
+            <TextBlock x:Name="PlayerTitle" Text="Ready to play" VerticalAlignment="Center"
+                       FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+        </Grid>
+
+        <Border x:Name="PlayerControlsBar" Grid.Row="2" VerticalAlignment="Bottom" Padding="12,6,12,6"
+                CornerRadius="0,0,15,15" SizeChanged="PlayerControlsBar_SizeChanged">
+            <Border.Resources>
+                <Style x:Key="PlayerIconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                    <Setter Property="Width" Value="36" />
+                    <Setter Property="Height" Value="36" />
+                    <Setter Property="MinWidth" Value="0" />
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="BorderThickness" Value="0" />
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="CornerRadius" Value="6" />
+                    <Setter Property="VerticalAlignment" Value="Center" />
+                </Style>
+                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#22FFFFFF" />
+                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#14FFFFFF" />
+                <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent" />
+                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+                <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
+                <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="Transparent" />
+            </Border.Resources>
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#00101010" Offset="0" />
+                    <GradientStop Color="#A6000000" Offset="0.42" />
+                    <GradientStop Color="#E6000000" Offset="1" />
+                </LinearGradientBrush>
+            </Border.Background>
+            <Grid x:Name="ControlsRow" ColumnSpacing="12" MinHeight="40">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel x:Name="LeftControlsGroup" Orientation="Horizontal" Spacing="2"
+                            VerticalAlignment="Center">
+                    <Button x:Name="PlayPauseButton" Style="{StaticResource PlayerIconButtonStyle}"
+                            Click="PlayPause_Click" IsEnabled="False"
+                            ToolTipService.ToolTip="Play or pause">
+                        <FontIcon x:Name="PlayPauseIcon" Glyph="&#xE768;" FontSize="16" />
+                    </Button>
+                    <Button x:Name="SeekBackwardButton" Style="{StaticResource PlayerIconButtonStyle}"
+                            Click="SeekBackward_Click" IsEnabled="False"
+                            ToolTipService.ToolTip="Back 10 seconds">
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                            <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                            <TextBlock Text="10" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="SeekForwardButton" Style="{StaticResource PlayerIconButtonStyle}"
+                            Click="SeekForward_Click" IsEnabled="False"
+                            ToolTipService.ToolTip="Forward 10 seconds">
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                            <TextBlock Text="10" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <FontIcon Glyph="&#xE72A;" FontSize="14" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="MuteButton" Style="{StaticResource PlayerIconButtonStyle}"
+                            Click="MuteButton_Click" IsEnabled="False"
+                            ToolTipService.ToolTip="Mute or unmute">
+                        <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="16" />
+                    </Button>
+                    <Slider x:Name="VolumeSlider" Width="96" Minimum="0" Maximum="100" Value="100"
+                            VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged" />
+                    <StackPanel x:Name="TimeGroup" Orientation="Horizontal" Spacing="4" MinWidth="104"
+                                Margin="10,0,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="CurrentTimeText" Text="0:00" FontSize="12" />
+                        <TextBlock x:Name="TimeSeparatorText" Text="/" FontSize="12" Opacity="0.5" />
+                        <TextBlock x:Name="DurationText" Text="0:00" FontSize="12" Opacity="0.72" />
+                    </StackPanel>
+                </StackPanel>
+
+                <Grid x:Name="SeekBarHost" Grid.Column="1" Height="32" VerticalAlignment="Center"
+                      PointerMoved="SeekBarHost_PointerMoved" PointerExited="SeekBarHost_PointerExited">
+                    <Slider x:Name="SeekSlider" Minimum="0" Maximum="1" Value="0"
+                            VerticalAlignment="Center" IsThumbToolTipEnabled="False" IsEnabled="False"
+                            ValueChanged="SeekSlider_ValueChanged"
+                            PointerPressed="SeekSlider_PointerPressed" PointerReleased="SeekSlider_PointerReleased" />
+                    <Canvas IsHitTestVisible="False">
+                        <Border x:Name="SeekPreviewBadge" Canvas.Top="-34" Visibility="Collapsed" Padding="8,4"
+                                Background="#F21F1F1F" BorderBrush="#22FFFFFF" BorderThickness="1"
+                                CornerRadius="6">
+                            <TextBlock x:Name="SeekPreviewText" Text="0:00" FontSize="12" Foreground="White" />
+                        </Border>
+                    </Canvas>
+                </Grid>
+
+                <StackPanel x:Name="RightControlsGroup" Grid.Column="2" Orientation="Horizontal" Spacing="2"
+                            VerticalAlignment="Center">
+                    <Button x:Name="PlayerSettingsButton" Style="{StaticResource PlayerIconButtonStyle}"
+                            ToolTipService.ToolTip="Playback settings">
+                        <FontIcon Glyph="&#xE713;" FontSize="16" />
+                        <Button.Flyout>
+                            <Flyout Placement="Top">
+                                <Border Background="#F20A0A0A" Padding="16" CornerRadius="8"
+                                        MinWidth="280">
+                                    <StackPanel Spacing="12">
+                                        <TextBlock Text="Playback settings" FontWeight="SemiBold"
+                                                   Margin="0,0,0,2" />
+                                        <StackPanel Spacing="5">
+                                            <TextBlock Text="Audio track" FontSize="12" Opacity="0.72" />
+                                            <ComboBox x:Name="AudioTrackCombo" MinWidth="248"
+                                                      PlaceholderText="No audio tracks"
+                                                      IsEnabled="False"
+                                                      SelectionChanged="AudioTrackCombo_SelectionChanged" />
+                                        </StackPanel>
+                                        <StackPanel Spacing="5">
+                                            <TextBlock Text="Subtitles" FontSize="12" Opacity="0.72" />
+                                            <ComboBox x:Name="SubtitleTrackCombo" MinWidth="248"
+                                                      PlaceholderText="No subtitles"
+                                                      IsEnabled="False"
+                                                      SelectionChanged="SubtitleTrackCombo_SelectionChanged" />
+                                        </StackPanel>
+                                        <StackPanel Spacing="5">
+                                            <TextBlock Text="Playback speed" FontSize="12" Opacity="0.72" />
+                                            <ComboBox x:Name="PlaybackSpeedCombo" MinWidth="248"
+                                                      SelectedIndex="2"
+                                                      SelectionChanged="PlaybackSpeedCombo_SelectionChanged">
+                                                <ComboBoxItem Content="0.5×" Tag="0.5" />
+                                                <ComboBoxItem Content="0.75×" Tag="0.75" />
+                                                <ComboBoxItem Content="1×" Tag="1" />
+                                                <ComboBoxItem Content="1.25×" Tag="1.25" />
+                                                <ComboBoxItem Content="1.5×" Tag="1.5" />
+                                                <ComboBoxItem Content="2×" Tag="2" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                    <Button x:Name="FullscreenButton" Style="{StaticResource PlayerIconButtonStyle}"
+                            Click="FullscreenButton_Click" ToolTipService.ToolTip="Toggle fullscreen">
+                        <FontIcon x:Name="FullscreenIcon" Glyph="&#xE740;" FontSize="16" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
