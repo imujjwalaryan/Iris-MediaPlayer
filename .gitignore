@@ -1,0 +1,43 @@
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# .NET build output
+[Bb]in/
+[Oo]bj/
+[Aa]rtifacts/
+[Ll]og/
+
+# NuGet packages restored locally
+packages/
+*.nupkg
+*.snupkg
+
+# WinUI / MSIX packaging output
+[Aa]ppPackages/
+[Bb]undleArtifacts/
+Package.StoreAssociation.xml
+*_Package/
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+*.appxupload
+*.msixupload
+*.appxsym
+
+# Signing certificates and local publish output
+*.pfx
+*.publishsettings
+[Pp]ublish/
+
+# Windows and editor noise
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+*.tmp
+*.log
