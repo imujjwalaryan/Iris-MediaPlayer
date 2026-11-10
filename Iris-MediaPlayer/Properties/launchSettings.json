@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Iris-MediaPlayer (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Iris-MediaPlayer (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
