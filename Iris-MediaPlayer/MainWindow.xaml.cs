@@ -295,7 +295,7 @@ public sealed partial class MainWindow : Window
         RoundedContentSurface.Margin = flat ? new Thickness(0) : new Thickness(0, 0, 8, 8);
         RoundedContentSurface.CornerRadius = flat ? new CornerRadius(0) : new CornerRadius(16);
         RoundedContentSurface.BorderThickness = flat ? new Thickness(0) : new Thickness(1);
-        PlayerPage.ApplyFrameMode(flat);
+        PlayerPage.ApplyFrameMode(squareCorners: flat, overlayBars: flat);
         UpdateContentClip();
     }
 

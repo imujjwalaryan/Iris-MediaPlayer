@@ -107,6 +107,26 @@ public sealed partial class PlayerView : UserControl
     /// <summary>The user pressed F, double-clicked the video or used the fullscreen button.</summary>
     public event EventHandler? FullscreenToggleRequested;
 
+    /// <summary>A different video started (next/previous, autoplay or a new request).</summary>
+    public event EventHandler<MediaItem>? MediaChanged;
+
+    private bool _isStandalone;
+
+    /// <summary>
+    /// True when the player is its own window (a file opened from Explorer) rather than a page
+    /// inside the library. There is nowhere to go back to, so the Back button is hidden and
+    /// Escape only leaves fullscreen.
+    /// </summary>
+    public bool IsStandalone
+    {
+        get => _isStandalone;
+        set
+        {
+            _isStandalone = value;
+            BackButton.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
+        }
+    }
+
     private bool HasPrevious => _queueIndex > 0;
     private bool HasNext => _queueIndex < _queue.Count - 1;
     private MediaItem? NextMedia => HasNext ? _queue[_queueIndex + 1] : null;
@@ -176,16 +196,18 @@ public sealed partial class PlayerView : UserControl
         ShowControlsTemporarily();
     }
 
-    /// <summary>Square corners and overlaid bars when flat (fullscreen); rounded and stacked otherwise.</summary>
-    public void ApplyFrameMode(bool flat)
+    /// <summary>
+    /// <paramref name="squareCorners"/>: drop the rounded frame (fullscreen, or a standalone window).
+    /// <paramref name="overlayBars"/>: let the video fill the whole view with the bars on top of it
+    /// (fullscreen, where they auto-hide); otherwise the video sits between the bars.
+    /// </summary>
+    public void ApplyFrameMode(bool squareCorners, bool overlayBars)
     {
-        PlayerRoot.CornerRadius = flat ? new CornerRadius(0) : new CornerRadius(15);
-        // Windowed: video sits between the header and controls bars, so it never reaches a corner.
-        // Fullscreen: video spans all rows and the bars overlay it (auto-hide).
-        Grid.SetRow(VideoHost, flat ? 0 : 1);
-        Grid.SetRowSpan(VideoHost, flat ? 3 : 1);
-        PlayerHeaderBar.CornerRadius = flat ? new CornerRadius(0) : new CornerRadius(15, 15, 0, 0);
-        PlayerControlsBar.CornerRadius = flat ? new CornerRadius(0) : new CornerRadius(0, 0, 15, 15);
+        PlayerRoot.CornerRadius = squareCorners ? new CornerRadius(0) : new CornerRadius(15);
+        Grid.SetRow(VideoHost, overlayBars ? 0 : 1);
+        Grid.SetRowSpan(VideoHost, overlayBars ? 3 : 1);
+        PlayerHeaderBar.CornerRadius = squareCorners ? new CornerRadius(0) : new CornerRadius(15, 15, 0, 0);
+        PlayerControlsBar.CornerRadius = squareCorners ? new CornerRadius(0) : new CornerRadius(0, 0, 15, 15);
     }
 
     /// <summary>Saves progress and releases mpv and the swap chain. Call once when the window closes.</summary>
@@ -227,6 +249,7 @@ public sealed partial class PlayerView : UserControl
         _lastSavedPosition = 0;
 
         PlayerTitle.Text = _currentMedia.Title;
+        MediaChanged?.Invoke(this, _currentMedia);
         PlaybackStatusText.Text = "Starting mpv…";
         PlaybackProgress.IsActive = true;
         PlayerStatus.Visibility = Visibility.Visible;
@@ -960,11 +983,13 @@ public sealed partial class PlayerView : UserControl
                 FullscreenToggleRequested?.Invoke(this, EventArgs.Empty);
                 break;
             case VirtualKey.Escape:
-                // Escape leaves fullscreen first, then leaves the player.
+                // Escape leaves fullscreen first, then (inside the library) leaves the player.
                 if (_isFullscreen)
                     FullscreenToggleRequested?.Invoke(this, EventArgs.Empty);
-                else
+                else if (!_isStandalone)
                     BackRequested?.Invoke(this, EventArgs.Empty);
+                else
+                    return false;
                 break;
             case VirtualKey.N when shift:
                 PlayNext();

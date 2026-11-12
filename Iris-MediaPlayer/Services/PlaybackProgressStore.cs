@@ -46,6 +46,11 @@ internal sealed class PlaybackProgressStore
         if (duration <= 0 || !double.IsFinite(position) || !double.IsFinite(duration))
             return;
 
+        // The library and a standalone player window can run at the same time as separate
+        // processes. Start from what is on disk so neither overwrites the other's progress.
+        _entries.Clear();
+        Load();
+
         if (position < MinimumResumeSeconds || IsFinished(position, duration))
         {
             if (_entries.Remove(filePath))
