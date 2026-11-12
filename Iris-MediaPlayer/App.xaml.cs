@@ -26,7 +26,16 @@ public partial class App : Application
     {
         var files = GetFilesToOpen();
         _window = files.Count > 0 ? new PlayerWindow(files) : new MainWindow();
+        SetWindowIcon(_window);
         _window.Activate();
+    }
+
+    /// <summary>Title bar, taskbar and Alt+Tab icon. The packaged tiles come from the manifest.</summary>
+    public static void SetWindowIcon(Window window)
+    {
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Iris.ico");
+        if (File.Exists(iconPath))
+            window.AppWindow.SetIcon(iconPath);
     }
 
     private static List<string> GetFilesToOpen()
