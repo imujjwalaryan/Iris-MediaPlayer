@@ -13,6 +13,12 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!--
+      Release builds are trimmed, which disables reflection-based System.Text.Json.
+      Turning it off everywhere makes Debug fail the same way, so a JSON call that skips
+      Services/IrisJsonContext.cs shows up during development instead of after publishing.
+    -->
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
 
   <ItemGroup>

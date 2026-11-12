@@ -200,7 +200,7 @@ public sealed class LibraryStore : IDisposable
 
         try
         {
-            _folderPaths.AddRange(JsonSerializer.Deserialize<List<string>>(saved) ?? []);
+            _folderPaths.AddRange(JsonSerializer.Deserialize(saved, IrisJsonContext.Default.ListString) ?? []);
         }
         catch (JsonException)
         {
@@ -210,7 +210,7 @@ public sealed class LibraryStore : IDisposable
 
     private void SaveFolderPaths()
     {
-        ApplicationData.Current.LocalSettings.Values[FolderSettingsKey] = JsonSerializer.Serialize(_folderPaths);
+        ApplicationData.Current.LocalSettings.Values[FolderSettingsKey] = JsonSerializer.Serialize(_folderPaths, IrisJsonContext.Default.ListString);
     }
 
     // ---------- Media lookup ----------
@@ -360,7 +360,7 @@ public sealed class LibraryStore : IDisposable
         if (_recentFilePaths.Count > MaxRecentItems)
             _recentFilePaths.RemoveRange(MaxRecentItems, _recentFilePaths.Count - MaxRecentItems);
 
-        ApplicationData.Current.LocalSettings.Values[RecentFilesSettingsKey] = JsonSerializer.Serialize(_recentFilePaths);
+        ApplicationData.Current.LocalSettings.Values[RecentFilesSettingsKey] = JsonSerializer.Serialize(_recentFilePaths, IrisJsonContext.Default.ListString);
         RefreshRecentMedia();
     }
 
@@ -384,7 +384,7 @@ public sealed class LibraryStore : IDisposable
 
         try
         {
-            _recentFilePaths.AddRange(JsonSerializer.Deserialize<List<string>>(saved) ?? []);
+            _recentFilePaths.AddRange(JsonSerializer.Deserialize(saved, IrisJsonContext.Default.ListString) ?? []);
         }
         catch (JsonException)
         {
@@ -436,7 +436,7 @@ public sealed class LibraryStore : IDisposable
     {
         try
         {
-            File.WriteAllText(GetCollectionsFilePath(), JsonSerializer.Serialize(Collections));
+            File.WriteAllText(GetCollectionsFilePath(), JsonSerializer.Serialize(Collections.ToList(), IrisJsonContext.Default.ListMediaCollection));
         }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
@@ -450,7 +450,7 @@ public sealed class LibraryStore : IDisposable
 
         try
         {
-            foreach (var collection in JsonSerializer.Deserialize<List<MediaCollection>>(File.ReadAllText(filePath)) ?? [])
+            foreach (var collection in JsonSerializer.Deserialize(File.ReadAllText(filePath), IrisJsonContext.Default.ListMediaCollection) ?? [])
             {
                 if (!string.IsNullOrWhiteSpace(collection.Name))
                 {

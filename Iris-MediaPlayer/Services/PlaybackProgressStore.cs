@@ -74,7 +74,7 @@ internal sealed class PlaybackProgressStore
             if (!File.Exists(path))
                 return;
 
-            var saved = JsonSerializer.Deserialize<Dictionary<string, PlaybackProgressEntry>>(File.ReadAllText(path));
+            var saved = JsonSerializer.Deserialize(File.ReadAllText(path), IrisJsonContext.Default.DictionaryStringPlaybackProgressEntry);
             if (saved is null)
                 return;
 
@@ -90,7 +90,7 @@ internal sealed class PlaybackProgressStore
     {
         try
         {
-            File.WriteAllText(GetFilePath(), JsonSerializer.Serialize(_entries));
+            File.WriteAllText(GetFilePath(), JsonSerializer.Serialize(_entries, IrisJsonContext.Default.DictionaryStringPlaybackProgressEntry));
         }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
