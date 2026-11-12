@@ -2,7 +2,10 @@ using Iris_MediaPlayer.Models;
 using Iris_MediaPlayer.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Iris_MediaPlayer.Views;
@@ -14,59 +17,77 @@ public enum LibraryMode
     Collections
 }
 
-/// <summary>Library page with three modes: all videos, a folder browser and collections.</summary>
+/// <summary>
+/// Library page with three modes that share one layout: a header with the mode's actions,
+/// a breadcrumb when drilled in, a grid of folder or collection cards and a grid of videos.
+/// </summary>
 public sealed partial class LibraryView : UserControl
 {
+    private const string FolderGlyph = "";
+    private const string CollectionGlyph = "";
+
     private LibraryStore? _store;
     private LibraryMode _mode = LibraryMode.Videos;
-    private string? _selectedFolderRoot;
-    private string? _currentFolderPath;
+    private string _query = string.Empty;
+    private string _sort = "Name";
+
+    // Folders mode: the library folder being browsed and the subfolder currently shown.
+    private string? _folderRoot;
+    private string? _currentFolder;
+
+    // Collections mode
     private MediaCollection? _selectedCollection;
+
+    // What the empty message's button should do.
+    private Action? _emptyAction;
 
     public LibraryView()
     {
         InitializeComponent();
     }
 
-    public event EventHandler<MediaItem>? PlayRequested;
-    public event EventHandler? OpenVideoRequested;
+    public event EventHandler<PlayRequest>? PlayRequested;
     public event EventHandler? AddFolderRequested;
-    public event EventHandler<string>? SearchTextChanged;
 
-    /// <summary>Keeps this search box in sync with the home page's search box.</summary>
+    /// <summary>Filter text from the app's search box.</summary>
     public string SearchText
     {
-        get => LibrarySearchBox.Text;
+        get => _query;
         set
         {
-            if (!string.Equals(LibrarySearchBox.Text, value, StringComparison.Ordinal))
-                LibrarySearchBox.Text = value;
+            var query = value?.Trim() ?? string.Empty;
+            if (string.Equals(query, _query, StringComparison.Ordinal))
+                return;
+            _query = query;
+            RefreshItems();
         }
     }
 
     public void Initialize(LibraryStore store)
     {
         _store = store;
-        CollectionTiles.ItemsSource = store.Collections;
         store.LibraryChanged += OnLibraryChanged;
-        store.ScanningChanged += OnScanningChanged;
+        store.ScanningChanged += isScanning =>
+        {
+            if (isScanning)
+                PageSummary.Text = "Scanning your folders for videos…";
+        };
         RefreshItems();
     }
 
     public void ShowMode(LibraryMode mode)
     {
         _mode = mode;
-        LibraryTitle.Text = mode == LibraryMode.Videos ? "Library" : mode.ToString();
         if (mode == LibraryMode.Folders)
         {
-            _selectedFolderRoot = null;
-            _currentFolderPath = null;
+            _folderRoot = null;
+            _currentFolder = null;
         }
         else if (mode == LibraryMode.Collections)
         {
             _selectedCollection = null;
         }
-        RefreshItems();
+        RefreshItems(scrollToTop: true);
     }
 
     private void OnLibraryChanged()
@@ -75,234 +96,269 @@ public sealed partial class LibraryView : UserControl
             return;
 
         // Drop folder-browser state that no longer exists after a rescan.
-        if (_selectedFolderRoot is not null && !_store.FolderPaths.Contains(_selectedFolderRoot, StringComparer.OrdinalIgnoreCase))
+        if (_folderRoot is not null && !_store.FolderPaths.Contains(_folderRoot, StringComparer.OrdinalIgnoreCase))
         {
-            _selectedFolderRoot = null;
-            _currentFolderPath = null;
+            _folderRoot = null;
+            _currentFolder = null;
         }
-        else if (_currentFolderPath is not null && !System.IO.Directory.Exists(_currentFolderPath))
+        else if (_currentFolder is not null && !System.IO.Directory.Exists(_currentFolder))
         {
-            _currentFolderPath = _selectedFolderRoot;
+            _currentFolder = _folderRoot;
         }
 
         RefreshItems();
     }
 
-    private void OnScanningChanged(bool isScanning)
-    {
-        if (isScanning)
-            LibrarySummary.Text = "Scanning folders for video files…";
-    }
+    // ---------- Rendering ----------
 
-    private void RefreshItems()
+    private void RefreshItems(bool scrollToTop = false)
     {
         if (_store is null)
             return;
 
-        var query = LibrarySearchBox.Text.Trim();
+        PageTitle.Text = _mode.ToString();
+        SortPanel.Visibility = _mode == LibraryMode.Videos ? Visibility.Visible : Visibility.Collapsed;
+        AddFolderButton.Visibility = _mode == LibraryMode.Folders ? Visibility.Visible : Visibility.Collapsed;
+        NewCollectionButton.Visibility = _mode == LibraryMode.Collections && _selectedCollection is null
+            ? Visibility.Visible : Visibility.Collapsed;
+        EditCollectionButton.Visibility = _mode == LibraryMode.Collections && _selectedCollection is not null
+            ? Visibility.Visible : Visibility.Collapsed;
+        CollectionMoreButton.Visibility = EditCollectionButton.Visibility;
+
         switch (_mode)
         {
             case LibraryMode.Folders:
-                RefreshFolderBrowser(query);
+                RenderFolders();
                 break;
             case LibraryMode.Collections:
-                RefreshCollectionsView(query);
+                RenderCollections();
                 break;
             default:
-                RefreshAllVideos(query);
+                RenderVideos();
                 break;
         }
 
-        var mediaCount = _store.AllMedia.Count;
-        var folderCount = _store.FolderPaths.Count;
-        LibrarySummary.Text = mediaCount == 0
-            ? "Add folders to discover media on this device."
-            : $"{mediaCount:N0} video{(mediaCount == 1 ? "" : "s")} in {folderCount:N0} folder{(folderCount == 1 ? "" : "s")}.";
+        if (scrollToTop)
+            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
     }
 
-    private static bool MatchesQuery(MediaItem media, string query)
-        => string.IsNullOrWhiteSpace(query)
-            || media.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase)
-            || media.FolderName.Contains(query, StringComparison.CurrentCultureIgnoreCase);
+    /// <summary>Fills the page. Pass null for a section that does not apply to this mode.</summary>
+    private void Render(
+        IReadOnlyList<LibraryTile>? folderTiles,
+        IReadOnlyList<LibraryTile>? collectionTiles,
+        IReadOnlyList<MediaItem> videos,
+        string tilesHeader)
+    {
+        var tiles = folderTiles ?? collectionTiles ?? [];
+        FolderTileItems.ItemsSource = folderTiles ?? [];
+        CollectionTileItems.ItemsSource = collectionTiles ?? [];
+        FolderTileItems.Visibility = folderTiles is { Count: > 0 } ? Visibility.Visible : Visibility.Collapsed;
+        CollectionTileItems.Visibility = collectionTiles is { Count: > 0 } ? Visibility.Visible : Visibility.Collapsed;
+        VideoItems.ItemsSource = videos;
+
+        TilesSection.Visibility = tiles.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        VideosSection.Visibility = videos.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        // Section headings only help when both kinds of content are on screen.
+        var showHeaders = tiles.Count > 0 && videos.Count > 0;
+        TilesHeader.Text = tilesHeader;
+        TilesHeader.Visibility = showHeaders ? Visibility.Visible : Visibility.Collapsed;
+        VideosHeader.Visibility = showHeaders ? Visibility.Visible : Visibility.Collapsed;
+
+        var isEmpty = tiles.Count == 0 && videos.Count == 0;
+        ContentScroller.Visibility = isEmpty ? Visibility.Collapsed : Visibility.Visible;
+        EmptyMessage.Visibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ShowEmpty(string glyph, string title, string description, string? actionText = null, Action? action = null)
+    {
+        EmptyMessage.Show(glyph, title, description, actionText);
+        _emptyAction = action;
+    }
+
+    private bool Matches(MediaItem media)
+        => string.IsNullOrEmpty(_query)
+           || media.Title.Contains(_query, StringComparison.CurrentCultureIgnoreCase)
+           || media.FolderName.Contains(_query, StringComparison.CurrentCultureIgnoreCase);
+
+    private bool Matches(string name)
+        => string.IsNullOrEmpty(_query) || name.Contains(_query, StringComparison.CurrentCultureIgnoreCase);
+
+    private static string Count(int count, string noun) => $"{count:N0} {noun}{(count == 1 ? "" : "s")}";
 
     // ---------- Videos mode ----------
 
-    private void RefreshAllVideos(string query)
+    private void RenderVideos()
     {
-        // Always hand the repeater a new snapshot; AllMedia is a plain list that does not
-        // notify WinUI when a folder scan clears and repopulates it.
-        var matches = _store!.AllMedia.Where(media => MatchesQuery(media, query)).ToList();
+        var store = _store!;
+        Breadcrumb.Visibility = Visibility.Collapsed;
 
-        FolderBrowserPanel.Visibility = Visibility.Collapsed;
-        CollectionsPanel.Visibility = Visibility.Collapsed;
-        CollectionEmpty.Visibility = Visibility.Collapsed;
-        LibraryItems.Visibility = Visibility.Visible;
-        LibraryItems.ItemsSource = matches;
-        LibraryEmpty.Visibility = matches.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        LibraryEmpty.Text = !string.IsNullOrWhiteSpace(query)
-            ? "No video titles match your search."
-            : "Your library is empty. Add a folder to scan for video files.";
+        IEnumerable<MediaItem> videos = store.AllMedia.Where(Matches);
+        videos = _sort switch
+        {
+            "Added" => videos.OrderByDescending(media => media.LastModified),
+            "Folder" => videos.OrderBy(media => media.FolderName, NaturalStringComparer.Instance)
+                              .ThenBy(media => media.Title, NaturalStringComparer.Instance),
+            _ => videos.OrderBy(media => media.Title, NaturalStringComparer.Instance)
+        };
+        var list = videos.ToList();
+
+        PageSummary.Text = !string.IsNullOrEmpty(_query)
+            ? $"{Count(list.Count, "result")} for “{_query}”"
+            : store.AllMedia.Count == 0
+                ? "Add folders to build your library."
+                : $"{Count(store.AllMedia.Count, "video")} in {Count(store.FolderPaths.Count, "folder")}";
+
+        if (store.FolderPaths.Count == 0)
+            ShowEmpty(FolderGlyph, "Your library is empty", "Add a folder and Iris will find every video inside it.",
+                "Add folder", () => AddFolderRequested?.Invoke(this, EventArgs.Empty));
+        else if (!string.IsNullOrEmpty(_query))
+            ShowEmpty("", "No matches", $"Nothing in your library matches “{_query}”.");
+        else
+            ShowEmpty("", "No videos yet", "Iris didn’t find any videos in your folders.",
+                "Add folder", () => AddFolderRequested?.Invoke(this, EventArgs.Empty));
+
+        Render(null, null, list, string.Empty);
     }
 
     // ---------- Folders mode ----------
 
-    private void RefreshFolderBrowser(string query)
+    private void RenderFolders()
     {
-        FolderBrowserPanel.Visibility = Visibility.Visible;
-        CollectionsPanel.Visibility = Visibility.Collapsed;
-        CollectionEmpty.Visibility = Visibility.Collapsed;
-        LibraryItems.Visibility = Visibility.Visible;
+        var store = _store!;
 
-        if (_selectedFolderRoot is null || _currentFolderPath is null)
+        if (_currentFolder is null || _folderRoot is null)
         {
-            FolderBrowserBackButton.Visibility = Visibility.Collapsed;
-            FolderBreadcrumb.Text = "Choose a library folder to browse.";
-            FolderTiles.ItemsSource = _store!.Folders.ToList();
-            FolderBrowserEmpty.Visibility = _store.Folders.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            LibraryItems.ItemsSource = Array.Empty<MediaItem>();
-            LibraryEmpty.Visibility = Visibility.Collapsed;
+            Breadcrumb.Visibility = Visibility.Collapsed;
+            var roots = store.Folders.Where(folder => Matches(folder.Name)).Select(ToTile).ToList();
+            PageSummary.Text = store.Folders.Count == 0
+                ? "Folders you add appear here."
+                : $"{Count(store.Folders.Count, "library folder")} · {Count(store.AllMedia.Count, "video")}";
+
+            if (store.Folders.Count == 0)
+                ShowEmpty(FolderGlyph, "No folders yet", "Add a folder and Iris will scan it, and everything inside it, for videos.",
+                    "Add folder", () => AddFolderRequested?.Invoke(this, EventArgs.Empty));
+            else
+                ShowEmpty("", "No matches", $"No library folders match “{_query}”.");
+
+            Render(roots, null, [], "Folders");
             return;
         }
 
-        FolderBrowserEmpty.Visibility = Visibility.Collapsed;
-        FolderBrowserBackButton.Visibility = Visibility.Visible;
-        var relativePath = System.IO.Path.GetRelativePath(_selectedFolderRoot, _currentFolderPath);
-        var rootName = PathUtils.GetFolderName(_selectedFolderRoot);
-        if (string.IsNullOrWhiteSpace(rootName))
-            rootName = _selectedFolderRoot;
-        FolderBreadcrumb.Text = relativePath == "." ? rootName : $"{rootName}  /  {relativePath.Replace('\\', '/')}";
-        FolderTiles.ItemsSource = _store!.GetChildFolders(_currentFolderPath);
-
-        var videos = _store.AllMedia
-            .Where(media => PathUtils.IsSamePath(media.FolderPath, _currentFolderPath) && MatchesQuery(media, query))
+        UpdateFolderBreadcrumb();
+        var subfolders = store.GetChildFolders(_currentFolder).Where(folder => Matches(folder.Name)).Select(ToTile).ToList();
+        var videos = store.AllMedia
+            .Where(media => PathUtils.IsSamePath(media.FolderPath, _currentFolder) && Matches(media))
+            .OrderBy(media => media.Title, NaturalStringComparer.Instance)
             .ToList();
-        LibraryItems.ItemsSource = videos;
-        LibraryEmpty.Visibility = videos.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        LibraryEmpty.Text = string.IsNullOrWhiteSpace(query)
-            ? "This folder has no videos. Open a subfolder or go back to browse another folder."
-            : "No videos in this folder match your search.";
+
+        var parts = new List<string>();
+        if (subfolders.Count > 0)
+            parts.Add(Count(subfolders.Count, "folder"));
+        parts.Add(Count(videos.Count, "video"));
+        PageSummary.Text = string.Join(" · ", parts);
+
+        ShowEmpty(FolderGlyph, "Nothing here",
+            string.IsNullOrEmpty(_query) ? "This folder has no videos." : $"Nothing in this folder matches “{_query}”.");
+        Render(subfolders, null, videos, "Folders");
     }
 
-    private void Subfolder_Click(object sender, RoutedEventArgs e)
+    private static LibraryTile ToTile(MediaFolder folder)
+        => new(folder.Name, folder.MediaCountLabel, FolderGlyph, folder.Preview, folder);
+
+    private void UpdateFolderBreadcrumb()
     {
-        if (sender is not Button { Tag: string path })
-            return;
+        var crumbs = new List<Crumb> { new("All folders", null) };
+        var rootName = PathUtils.GetFolderName(_folderRoot!);
+        crumbs.Add(new Crumb(string.IsNullOrWhiteSpace(rootName) ? _folderRoot! : rootName, _folderRoot));
 
-        _selectedFolderRoot ??= path;
-        _currentFolderPath = path;
-        RefreshItems();
-    }
-
-    private void FolderBrowserBack_Click(object sender, RoutedEventArgs e)
-    {
-        if (_selectedFolderRoot is null || _currentFolderPath is null)
-            return;
-
-        if (PathUtils.IsSamePath(_currentFolderPath, _selectedFolderRoot))
+        var relative = System.IO.Path.GetRelativePath(_folderRoot!, _currentFolder!);
+        if (relative != ".")
         {
-            _selectedFolderRoot = null;
-            _currentFolderPath = null;
-        }
-        else
-        {
-            var parent = System.IO.Path.GetDirectoryName(_currentFolderPath);
-            _currentFolderPath = parent is not null && PathUtils.IsPathWithin(parent, _selectedFolderRoot)
-                ? parent
-                : _selectedFolderRoot;
+            var path = _folderRoot!;
+            foreach (var segment in relative.Split(System.IO.Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+            {
+                path = System.IO.Path.Combine(path, segment);
+                crumbs.Add(new Crumb(segment, path));
+            }
         }
 
-        RefreshItems();
+        Breadcrumb.ItemsSource = crumbs;
+        Breadcrumb.Visibility = Visibility.Visible;
     }
 
     // ---------- Collections mode ----------
 
-    private void RefreshCollectionsView(string query)
+    private void RenderCollections()
     {
         var store = _store!;
-        var isOverview = _selectedCollection is null;
-
-        FolderBrowserPanel.Visibility = Visibility.Collapsed;
-        CollectionsPanel.Visibility = Visibility.Visible;
-        CollectionTiles.Visibility = isOverview ? Visibility.Visible : Visibility.Collapsed;
-        CollectionEmpty.Visibility = isOverview && store.Collections.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        CollectionsBackButton.Visibility = isOverview ? Visibility.Collapsed : Visibility.Visible;
-        CollectionHeading.Visibility = isOverview ? Visibility.Visible : Visibility.Collapsed;
-        SelectedCollectionName.Visibility = isOverview ? Visibility.Collapsed : Visibility.Visible;
-        SelectedCollectionCount.Visibility = isOverview ? Visibility.Collapsed : Visibility.Visible;
-        AddCollectionVideosButton.Visibility = isOverview ? Visibility.Collapsed : Visibility.Visible;
-        CreateCollectionButton.Visibility = isOverview ? Visibility.Visible : Visibility.Collapsed;
-        DeleteCollectionButton.Visibility = isOverview ? Visibility.Collapsed : Visibility.Visible;
 
         if (_selectedCollection is null)
         {
-            LibraryItems.Visibility = Visibility.Collapsed;
-            LibraryEmpty.Visibility = Visibility.Collapsed;
+            Breadcrumb.Visibility = Visibility.Collapsed;
+            var tiles = store.Collections
+                .Where(collection => Matches(collection.Name))
+                .Select(collection => new LibraryTile(collection.Name, collection.VideoCountLabel, CollectionGlyph,
+                    collection.FilePaths.Select(store.ResolveMedia).FirstOrDefault(media => media is not null), collection))
+                .ToList();
+            PageSummary.Text = store.Collections.Count == 0
+                ? "Playlists you build from any of your videos."
+                : Count(store.Collections.Count, "collection");
+
+            if (store.Collections.Count == 0)
+                ShowEmpty(CollectionGlyph, "No collections yet",
+                    "Collections are playlists you build from any videos, wherever they’re stored.",
+                    "New collection", CreateCollection);
+            else
+                ShowEmpty("", "No matches", $"No collections match “{_query}”.");
+
+            Render(null, tiles, [], "Collections");
             return;
         }
 
-        var videos = _selectedCollection.FilePaths
-            .Select(store.ResolveMedia)
-            .Where(media => media is not null)
-            .Cast<MediaItem>()
-            .Where(media => MatchesQuery(media, query))
-            .ToList();
-        SelectedCollectionName.Text = _selectedCollection.Name;
-        SelectedCollectionCount.Text = $"{videos.Count:N0} video{(videos.Count == 1 ? "" : "s")}";
-        LibraryItems.Visibility = Visibility.Visible;
-        LibraryItems.ItemsSource = videos;
-        LibraryEmpty.Visibility = videos.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        LibraryEmpty.Text = string.IsNullOrWhiteSpace(query)
-            ? "This collection is empty. Add videos from your library."
-            : "No videos in this collection match your search.";
+        Breadcrumb.ItemsSource = new List<Crumb> { new("All collections", null), new(_selectedCollection.Name, _selectedCollection.Name) };
+        Breadcrumb.Visibility = Visibility.Visible;
+
+        var videos = GetCollectionMedia(_selectedCollection).Where(Matches).ToList();
+        PageSummary.Text = Count(_selectedCollection.FilePaths.Count, "video");
+
+        if (_selectedCollection.FilePaths.Count == 0)
+            ShowEmpty(CollectionGlyph, "This collection is empty", "Add videos from anywhere in your library.",
+                "Edit videos", EditCollectionVideos);
+        else
+            ShowEmpty("", "No matches", $"Nothing in this collection matches “{_query}”.");
+
+        Render(null, null, videos, string.Empty);
     }
 
-    private void CollectionTile_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: MediaCollection collection })
-        {
-            _selectedCollection = collection;
-            RefreshItems();
-        }
-    }
+    private List<MediaItem> GetCollectionMedia(MediaCollection collection)
+        => collection.FilePaths.Select(_store!.ResolveMedia).OfType<MediaItem>().ToList();
 
-    private void CollectionsBack_Click(object sender, RoutedEventArgs e)
-    {
-        _selectedCollection = null;
-        RefreshItems();
-    }
-
-    private async void CreateCollection_Click(object sender, RoutedEventArgs e)
+    private async void CreateCollection()
     {
         if (_store is null)
             return;
 
-        var nameBox = new TextBox { PlaceholderText = "Collection name" };
-        var dialog = new ContentDialog
-        {
-            Title = "Create collection",
-            Content = nameBox,
-            PrimaryButtonText = "Create",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = XamlRoot
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-            return;
-
-        var name = nameBox.Text.Trim();
+        var name = await PromptForNameAsync("New collection", "Create", string.Empty);
         if (string.IsNullOrWhiteSpace(name))
             return;
 
         var collection = new MediaCollection { Name = name };
         _store.Collections.Add(collection);
-        _selectedCollection = collection;
         _store.SaveCollections();
-        RefreshItems();
+        _selectedCollection = collection;
+        RefreshItems(scrollToTop: true);
     }
 
-    private async void AddCollectionVideos_Click(object sender, RoutedEventArgs e)
+    private void EditCollectionVideos()
     {
-        if (_store is null || _selectedCollection is null)
+        if (_selectedCollection is not null)
+            EditCollectionVideos(_selectedCollection);
+    }
+
+    private async void EditCollectionVideos(MediaCollection collection)
+    {
+        if (_store is null)
             return;
 
         var availableMedia = _store.GetAllKnownMedia();
@@ -314,25 +370,30 @@ public sealed partial class LibraryView : UserControl
             ItemsSource = availableMedia,
             DisplayMemberPath = nameof(MediaItem.Title),
             SelectionMode = ListViewSelectionMode.Multiple,
-            MaxHeight = 480
+            MaxHeight = 440
         };
         foreach (var media in availableMedia.Where(media =>
-                     _selectedCollection.FilePaths.Contains(media.FilePath, StringComparer.OrdinalIgnoreCase)))
+                     collection.FilePaths.Contains(media.FilePath, StringComparer.OrdinalIgnoreCase)))
             picker.SelectedItems.Add(media);
 
         var dialog = new ContentDialog
         {
-            Title = $"Edit videos in {_selectedCollection.Name}",
+            Title = $"Videos in {collection.Name}",
             Content = new StackPanel
             {
-                Spacing = 8,
+                Spacing = 12,
                 Children =
                 {
-                    new TextBlock { Text = "Select videos from any folder or recently opened files. The files stay where they are." },
+                    new TextBlock
+                    {
+                        Text = "Pick videos from any folder or recently opened files. The files stay where they are.",
+                        TextWrapping = TextWrapping.Wrap,
+                        Style = (Style)Application.Current.Resources["IrisBodySecondaryTextStyle"]
+                    },
                     picker
                 }
             },
-            PrimaryButtonText = "Save selection",
+            PrimaryButtonText = "Save",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = XamlRoot
@@ -340,40 +401,240 @@ public sealed partial class LibraryView : UserControl
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
             return;
 
-        _selectedCollection.FilePaths = picker.SelectedItems.OfType<MediaItem>()
-            .Select(media => media.FilePath)
-            .ToList();
-
+        collection.FilePaths = picker.SelectedItems.OfType<MediaItem>().Select(media => media.FilePath).ToList();
         _store.SaveCollections();
         RefreshItems();
     }
 
-    private void DeleteCollection_Click(object sender, RoutedEventArgs e)
+    private async System.Threading.Tasks.Task<string?> PromptForNameAsync(string title, string primaryText, string initialName)
     {
-        if (_store is null || _selectedCollection is null)
+        var nameBox = new TextBox { PlaceholderText = "Collection name", Text = initialName };
+        nameBox.SelectAll();
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = nameBox,
+            PrimaryButtonText = primaryText,
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary ? nameBox.Text.Trim() : null;
+    }
+
+    // ---------- Card and header actions ----------
+
+    private void Tile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: LibraryTile tile })
+            OpenTile(tile);
+    }
+
+    private void OpenTile(LibraryTile tile)
+    {
+        switch (tile.Source)
+        {
+            case MediaFolder folder:
+                _folderRoot ??= folder.Path;
+                _currentFolder = folder.Path;
+                break;
+            case MediaCollection collection:
+                _selectedCollection = collection;
+                break;
+        }
+        RefreshItems(scrollToTop: true);
+    }
+
+    private void Breadcrumb_ItemClicked(BreadcrumbBar sender, BreadcrumbBarItemClickedEventArgs args)
+    {
+        if (args.Item is not Crumb crumb)
             return;
 
-        _store.Collections.Remove(_selectedCollection);
-        _selectedCollection = null;
-        _store.SaveCollections();
-        RefreshItems();
+        if (_mode == LibraryMode.Folders)
+        {
+            if (crumb.Key is null)
+            {
+                _folderRoot = null;
+                _currentFolder = null;
+            }
+            else
+            {
+                _currentFolder = crumb.Key;
+            }
+        }
+        else if (_mode == LibraryMode.Collections && crumb.Key is null)
+        {
+            _selectedCollection = null;
+        }
+        RefreshItems(scrollToTop: true);
     }
-
-    // ---------- Shared actions ----------
 
     private void MediaCard_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: string filePath } && _store?.ResolveMedia(filePath) is { } media)
-            PlayRequested?.Invoke(this, media);
+        if (sender is not Button { Tag: string filePath } || _store?.ResolveMedia(filePath) is not { } media)
+            return;
+
+        // Inside a collection, next/previous follow the collection's order. Everywhere else
+        // the player falls back to the other videos in the same folder.
+        var queue = _mode == LibraryMode.Collections && _selectedCollection is not null
+            ? GetCollectionMedia(_selectedCollection)
+            : null;
+        PlayRequested?.Invoke(this, new PlayRequest(media, queue));
     }
 
-    private void OpenVideo_Click(object sender, RoutedEventArgs e) => OpenVideoRequested?.Invoke(this, EventArgs.Empty);
+    private void SortCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (SortCombo.SelectedItem is ComboBoxItem { Tag: string sort })
+        {
+            _sort = sort;
+            RefreshItems();
+        }
+    }
 
     private void AddFolder_Click(object sender, RoutedEventArgs e) => AddFolderRequested?.Invoke(this, EventArgs.Empty);
 
-    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    private void CreateCollection_Click(object sender, RoutedEventArgs e) => CreateCollection();
+
+    private void EditCollectionVideos_Click(object sender, RoutedEventArgs e) => EditCollectionVideos();
+
+    private void EmptyMessage_ActionClick(object? sender, EventArgs e) => _emptyAction?.Invoke();
+
+    // ---------- Card menus ----------
+    // Menus are built fresh for each card. A single MenuFlyout shared by many buttons in a
+    // template can open empty in WinUI, and building per card lets each show only what applies.
+
+    private void TileMore_Click(object sender, RoutedEventArgs e)
     {
+        if (sender is FrameworkElement { DataContext: LibraryTile tile } target)
+            BuildTileMenu(tile)?.ShowAt(target, new FlyoutShowOptions { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight });
+    }
+
+    private void Tile_ContextRequested(UIElement sender, ContextRequestedEventArgs args)
+    {
+        if (sender is not FrameworkElement { DataContext: LibraryTile tile } target || BuildTileMenu(tile) is not { } menu)
+            return;
+
+        var options = new FlyoutShowOptions();
+        if (args.TryGetPosition(target, out var point))
+            options.Position = point;
+        menu.ShowAt(target, options);
+        args.Handled = true;
+    }
+
+    private void CollectionMore_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedCollection is not null && sender is FrameworkElement target)
+            BuildCollectionMenu(_selectedCollection, includeOpen: false)
+                .ShowAt(target, new FlyoutShowOptions { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight });
+    }
+
+    private MenuFlyout? BuildTileMenu(LibraryTile tile) => tile.Source switch
+    {
+        MediaFolder folder => BuildFolderMenu(tile, folder),
+        MediaCollection collection => BuildCollectionMenu(collection, includeOpen: true),
+        _ => null
+    };
+
+    private MenuFlyout BuildFolderMenu(LibraryTile tile, MediaFolder folder)
+    {
+        var menu = new MenuFlyout();
+        menu.Items.Add(CreateMenuItem("Open", "", () => OpenTile(tile)));
+        menu.Items.Add(CreateMenuItem("Show in File Explorer", "",
+            async () => await Windows.System.Launcher.LaunchFolderPathAsync(folder.Path)));
+
+        // Only top-level library folders can be removed; subfolders come with their parent.
+        if (_store?.FolderPaths.Contains(folder.Path, StringComparer.OrdinalIgnoreCase) == true)
+        {
+            menu.Items.Add(new MenuFlyoutSeparator());
+            menu.Items.Add(CreateMenuItem("Remove from library", "", () => RemoveFolder(folder)));
+        }
+        return menu;
+    }
+
+    private MenuFlyout BuildCollectionMenu(MediaCollection collection, bool includeOpen)
+    {
+        var menu = new MenuFlyout();
+        if (includeOpen)
+        {
+            menu.Items.Add(CreateMenuItem("Open", "", () =>
+            {
+                _selectedCollection = collection;
+                RefreshItems(scrollToTop: true);
+            }));
+            menu.Items.Add(CreateMenuItem("Edit videos", "", () => EditCollectionVideos(collection)));
+        }
+        menu.Items.Add(CreateMenuItem("Rename", "", () => RenameCollection(collection)));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(CreateMenuItem("Delete collection", "", () => DeleteCollection(collection)));
+        return menu;
+    }
+
+    private static MenuFlyoutItem CreateMenuItem(string text, string glyph, Action action)
+    {
+        var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph } };
+        item.Click += (_, _) => action();
+        return item;
+    }
+
+    private async void RemoveFolder(MediaFolder folder)
+    {
+        if (_store is null)
+            return;
+
+        var dialog = new ContentDialog
+        {
+            Title = $"Remove “{folder.Name}” from your library?",
+            Content = "Iris will stop showing its videos. Nothing is deleted from your computer, and you can add the folder again any time.",
+            PrimaryButtonText = "Remove",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+            await _store.RemoveFolderAsync(folder.Path);
+    }
+
+    private async void RenameCollection(MediaCollection collection)
+    {
+        if (_store is null)
+            return;
+
+        var name = await PromptForNameAsync("Rename collection", "Rename", collection.Name);
+        if (string.IsNullOrWhiteSpace(name))
+            return;
+
+        collection.Name = name;
+        _store.SaveCollections();
         RefreshItems();
-        SearchTextChanged?.Invoke(this, LibrarySearchBox.Text);
+    }
+
+    private async void DeleteCollection(MediaCollection collection)
+    {
+        if (_store is null)
+            return;
+
+        var dialog = new ContentDialog
+        {
+            Title = $"Delete “{collection.Name}”?",
+            Content = "The videos stay where they are. Only the collection is removed.",
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        _store.Collections.Remove(collection);
+        _store.SaveCollections();
+        if (ReferenceEquals(_selectedCollection, collection))
+            _selectedCollection = null;
+        RefreshItems(scrollToTop: true);
+    }
+
+    /// <summary>A breadcrumb step. <see cref="Key"/> is the folder path or collection name; null is the top level.</summary>
+    private sealed record Crumb(string Label, string? Key)
+    {
+        public override string ToString() => Label;
     }
 }

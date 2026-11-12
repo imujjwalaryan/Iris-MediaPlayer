@@ -2,25 +2,46 @@
 <UserControl
     x:Class="Iris_MediaPlayer.Views.PlayerView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    IsTabStop="True"
+    UseSystemFocusVisuals="False">
 
-    <Grid x:Name="PlayerRoot" Background="#0D0F15" CornerRadius="15"
-          PointerMoved="Player_PointerMoved" KeyDown="Player_KeyDown">
+    <UserControl.Resources>
+        <Style x:Key="PlayerIconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <Setter Property="Width" Value="36" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="FlyoutLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Opacity" Value="0.72" />
+        </Style>
+    </UserControl.Resources>
+
+    <Grid x:Name="PlayerRoot" Background="#0D0F15" CornerRadius="15" PointerMoved="Player_PointerMoved">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <Grid.KeyboardAccelerators>
-            <KeyboardAccelerator Key="Escape" Invoked="PlayerKeyboardAccelerator_Invoked" />
-            <KeyboardAccelerator Key="F" Invoked="PlayerKeyboardAccelerator_Invoked" />
-            <KeyboardAccelerator Key="Space" Invoked="PlayerKeyboardAccelerator_Invoked" />
-        </Grid.KeyboardAccelerators>
+        <Grid.Resources>
+            <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#22FFFFFF" />
+            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#14FFFFFF" />
+            <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent" />
+            <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+            <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
+            <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="Transparent" />
+        </Grid.Resources>
 
+        <!-- Video surface: click to pause, double-click for fullscreen -->
         <Grid x:Name="VideoHost" Grid.Row="1" Background="Transparent" SizeChanged="VideoHost_SizeChanged"
-              PointerMoved="Player_PointerMoved">
-            <SwapChainPanel x:Name="VideoPanel" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                            PointerMoved="Player_PointerMoved" />
+              Tapped="VideoHost_Tapped" DoubleTapped="VideoHost_DoubleTapped">
+            <SwapChainPanel x:Name="VideoPanel" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
             <StackPanel x:Name="PlayerStatus" HorizontalAlignment="Center" VerticalAlignment="Center"
                         Spacing="10" IsHitTestVisible="False">
                 <ProgressRing x:Name="PlaybackProgress" IsActive="False" Width="36" Height="36" />
@@ -29,32 +50,71 @@
             </StackPanel>
         </Grid>
 
-        <Grid x:Name="PlayerHeaderBar" VerticalAlignment="Top" Padding="18,12" CornerRadius="15,15,0,0"
-              Background="#B3000000">
-            <TextBlock x:Name="PlayerTitle" Text="Ready to play" VerticalAlignment="Center"
+        <!-- Short on-screen messages such as "Volume 40%" -->
+        <Border x:Name="OsdBanner" Grid.Row="1" Visibility="Collapsed" IsHitTestVisible="False"
+                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,20,0,0"
+                Padding="14,6" CornerRadius="6" Background="#E6181A20">
+            <TextBlock x:Name="OsdText" />
+        </Border>
+
+        <!-- "Resumed from 12:34 · Start over" -->
+        <Border x:Name="ResumeBanner" Grid.Row="1" Visibility="Collapsed"
+                HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="20"
+                Padding="14,8,8,8" CornerRadius="8" Background="#E6181A20"
+                BorderBrush="#22FFFFFF" BorderThickness="1">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock x:Name="ResumeBannerText" Text="Resumed" VerticalAlignment="Center" />
+                <Button Content="Start over" Click="StartOver_Click" />
+            </StackPanel>
+        </Border>
+
+        <!-- End of video: up next countdown, or replay -->
+        <Border x:Name="EndPanel" Grid.Row="1" Visibility="Collapsed"
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                Padding="24" CornerRadius="12" Background="#F0181A20" MaxWidth="440"
+                BorderBrush="#22FFFFFF" BorderThickness="1">
+            <StackPanel Spacing="10">
+                <TextBlock x:Name="EndPanelHeading" Text="UP NEXT" FontWeight="SemiBold" CharacterSpacing="160"
+                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                <TextBlock x:Name="EndPanelTitle" Style="{StaticResource SubtitleTextBlockStyle}"
+                           TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="EndPanelCountdown" Opacity="0.72" />
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
+                    <Button x:Name="EndPlayNextButton" Content="Play now" Click="EndPlayNext_Click"
+                            Style="{StaticResource AccentButtonStyle}" />
+                    <Button x:Name="EndCancelButton" Content="Cancel" Click="EndCancel_Click" />
+                    <Button x:Name="EndReplayButton" Click="EndReplay_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                            <TextBlock Text="Replay" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Header: back, title, position in queue -->
+        <Grid x:Name="PlayerHeaderBar" VerticalAlignment="Top" Padding="8,8,18,8" CornerRadius="15,15,0,0"
+              Background="#B3000000" ColumnSpacing="8"
+              PointerEntered="Bars_PointerEntered" PointerExited="Bars_PointerExited">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button x:Name="BackButton" Style="{StaticResource PlayerIconButtonStyle}" Click="Back_Click"
+                    ToolTipService.ToolTip="Back (Esc)">
+                <FontIcon Glyph="&#xE72B;" FontSize="16" />
+            </Button>
+            <TextBlock x:Name="PlayerTitle" Grid.Column="1" Text="Ready to play" VerticalAlignment="Center"
                        FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+            <TextBlock x:Name="QueuePositionText" Grid.Column="2" VerticalAlignment="Center"
+                       FontSize="12" Opacity="0.65" />
         </Grid>
 
         <Border x:Name="PlayerControlsBar" Grid.Row="2" VerticalAlignment="Bottom" Padding="12,6,12,6"
-                CornerRadius="0,0,15,15" SizeChanged="PlayerControlsBar_SizeChanged">
-            <Border.Resources>
-                <Style x:Key="PlayerIconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
-                    <Setter Property="Width" Value="36" />
-                    <Setter Property="Height" Value="36" />
-                    <Setter Property="MinWidth" Value="0" />
-                    <Setter Property="Padding" Value="0" />
-                    <Setter Property="BorderThickness" Value="0" />
-                    <Setter Property="Background" Value="Transparent" />
-                    <Setter Property="CornerRadius" Value="6" />
-                    <Setter Property="VerticalAlignment" Value="Center" />
-                </Style>
-                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#22FFFFFF" />
-                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#14FFFFFF" />
-                <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent" />
-                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
-                <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
-                <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="Transparent" />
-            </Border.Resources>
+                CornerRadius="0,0,15,15" SizeChanged="PlayerControlsBar_SizeChanged"
+                PointerEntered="Bars_PointerEntered" PointerExited="Bars_PointerExited">
             <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                     <GradientStop Color="#00101010" Offset="0" />
@@ -71,14 +131,24 @@
 
                 <StackPanel x:Name="LeftControlsGroup" Orientation="Horizontal" Spacing="2"
                             VerticalAlignment="Center">
+                    <Button x:Name="PreviousButton" Style="{StaticResource PlayerIconButtonStyle}"
+                            Click="Previous_Click" IsEnabled="False"
+                            ToolTipService.ToolTip="Previous (Shift+P)">
+                        <FontIcon Glyph="&#xE892;" FontSize="14" />
+                    </Button>
                     <Button x:Name="PlayPauseButton" Style="{StaticResource PlayerIconButtonStyle}"
                             Click="PlayPause_Click" IsEnabled="False"
-                            ToolTipService.ToolTip="Play or pause">
+                            ToolTipService.ToolTip="Play or pause (Space)">
                         <FontIcon x:Name="PlayPauseIcon" Glyph="&#xE768;" FontSize="16" />
+                    </Button>
+                    <Button x:Name="NextButton" Style="{StaticResource PlayerIconButtonStyle}"
+                            Click="Next_Click" IsEnabled="False"
+                            ToolTipService.ToolTip="Next (Shift+N)">
+                        <FontIcon Glyph="&#xE893;" FontSize="14" />
                     </Button>
                     <Button x:Name="SeekBackwardButton" Style="{StaticResource PlayerIconButtonStyle}"
                             Click="SeekBackward_Click" IsEnabled="False"
-                            ToolTipService.ToolTip="Back 10 seconds">
+                            ToolTipService.ToolTip="Back 10 seconds (J)">
                         <StackPanel Orientation="Horizontal" Spacing="2">
                             <FontIcon Glyph="&#xE72B;" FontSize="14" />
                             <TextBlock Text="10" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" />
@@ -86,7 +156,7 @@
                     </Button>
                     <Button x:Name="SeekForwardButton" Style="{StaticResource PlayerIconButtonStyle}"
                             Click="SeekForward_Click" IsEnabled="False"
-                            ToolTipService.ToolTip="Forward 10 seconds">
+                            ToolTipService.ToolTip="Forward 10 seconds (L)">
                         <StackPanel Orientation="Horizontal" Spacing="2">
                             <TextBlock Text="10" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" />
                             <FontIcon Glyph="&#xE72A;" FontSize="14" />
@@ -94,7 +164,7 @@
                     </Button>
                     <Button x:Name="MuteButton" Style="{StaticResource PlayerIconButtonStyle}"
                             Click="MuteButton_Click" IsEnabled="False"
-                            ToolTipService.ToolTip="Mute or unmute">
+                            ToolTipService.ToolTip="Mute (M)">
                         <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="16" />
                     </Button>
                     <Slider x:Name="VolumeSlider" Width="96" Minimum="0" Maximum="100" Value="100"
@@ -128,46 +198,103 @@
                             ToolTipService.ToolTip="Playback settings">
                         <FontIcon Glyph="&#xE713;" FontSize="16" />
                         <Button.Flyout>
-                            <Flyout Placement="Top">
-                                <Border Background="#F20A0A0A" Padding="16" CornerRadius="8"
-                                        MinWidth="280">
-                                    <StackPanel Spacing="12">
-                                        <TextBlock Text="Playback settings" FontWeight="SemiBold"
-                                                   Margin="0,0,0,2" />
-                                        <StackPanel Spacing="5">
-                                            <TextBlock Text="Audio track" FontSize="12" Opacity="0.72" />
-                                            <ComboBox x:Name="AudioTrackCombo" MinWidth="248"
-                                                      PlaceholderText="No audio tracks"
-                                                      IsEnabled="False"
-                                                      SelectionChanged="AudioTrackCombo_SelectionChanged" />
+                            <Flyout x:Name="PlayerSettingsFlyout" Placement="Top">
+                                <Border Background="#F20A0A0A" Padding="16" CornerRadius="8" MinWidth="300">
+                                    <ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto" Padding="0,0,12,0">
+                                        <StackPanel Spacing="12">
+                                            <TextBlock Text="Playback settings" FontWeight="SemiBold" Margin="0,0,0,2" />
+
+                                            <StackPanel Spacing="5">
+                                                <TextBlock Text="Audio track" Style="{StaticResource FlyoutLabelStyle}" />
+                                                <ComboBox x:Name="AudioTrackCombo" MinWidth="268"
+                                                          PlaceholderText="No audio tracks" IsEnabled="False"
+                                                          SelectionChanged="AudioTrackCombo_SelectionChanged" />
+                                            </StackPanel>
+                                            <StackPanel Spacing="5">
+                                                <TextBlock Text="Audio delay (seconds)" Style="{StaticResource FlyoutLabelStyle}" />
+                                                <NumberBox x:Name="AudioDelayBox" Value="0" Minimum="-30" Maximum="30"
+                                                           SmallChange="0.1" LargeChange="1"
+                                                           SpinButtonPlacementMode="Inline"
+                                                           ValueChanged="AudioDelayBox_ValueChanged" />
+                                            </StackPanel>
+
+                                            <StackPanel Spacing="5">
+                                                <TextBlock Text="Subtitles" Style="{StaticResource FlyoutLabelStyle}" />
+                                                <ComboBox x:Name="SubtitleTrackCombo" MinWidth="268"
+                                                          PlaceholderText="No subtitles" IsEnabled="False"
+                                                          SelectionChanged="SubtitleTrackCombo_SelectionChanged" />
+                                                <Button x:Name="LoadSubtitleButton" Content="Load subtitle file…"
+                                                        Click="LoadSubtitle_Click" IsEnabled="False"
+                                                        ToolTipService.ToolTip="You can also drop a subtitle file onto the player" />
+                                            </StackPanel>
+                                            <StackPanel Spacing="5">
+                                                <TextBlock Text="Subtitle delay (seconds) · Z / X" Style="{StaticResource FlyoutLabelStyle}" />
+                                                <NumberBox x:Name="SubtitleDelayBox" Value="0" Minimum="-30" Maximum="30"
+                                                           SmallChange="0.1" LargeChange="1"
+                                                           SpinButtonPlacementMode="Inline"
+                                                           ValueChanged="SubtitleDelayBox_ValueChanged" />
+                                            </StackPanel>
+
+                                            <StackPanel Spacing="5">
+                                                <TextBlock Text="Playback speed" Style="{StaticResource FlyoutLabelStyle}" />
+                                                <ComboBox x:Name="PlaybackSpeedCombo" MinWidth="268" SelectedIndex="2"
+                                                          SelectionChanged="PlaybackSpeedCombo_SelectionChanged">
+                                                    <ComboBoxItem Content="0.5×" Tag="0.5" />
+                                                    <ComboBoxItem Content="0.75×" Tag="0.75" />
+                                                    <ComboBoxItem Content="1×" Tag="1" />
+                                                    <ComboBoxItem Content="1.25×" Tag="1.25" />
+                                                    <ComboBoxItem Content="1.5×" Tag="1.5" />
+                                                    <ComboBoxItem Content="2×" Tag="2" />
+                                                </ComboBox>
+                                            </StackPanel>
+                                            <StackPanel Spacing="5">
+                                                <TextBlock Text="Zoom · C" Style="{StaticResource FlyoutLabelStyle}" />
+                                                <ComboBox x:Name="ZoomModeCombo" MinWidth="268" SelectedIndex="0"
+                                                          SelectionChanged="ZoomModeCombo_SelectionChanged">
+                                                    <ComboBoxItem Content="Fit (original)" Tag="Fit" />
+                                                    <ComboBoxItem Content="Fill screen (crops edges)" Tag="Fill" />
+                                                    <ComboBoxItem Content="Stretch" Tag="Stretch" />
+                                                </ComboBox>
+                                            </StackPanel>
+                                            <StackPanel Spacing="5">
+                                                <TextBlock Text="Crop" Style="{StaticResource FlyoutLabelStyle}" />
+                                                <ComboBox x:Name="CropCombo" MinWidth="268" SelectedIndex="0"
+                                                          SelectionChanged="CropCombo_SelectionChanged">
+                                                    <ComboBoxItem Content="None" Tag="0" />
+                                                    <ComboBoxItem Content="16:9" Tag="1.7778" />
+                                                    <ComboBoxItem Content="1.85:1" Tag="1.85" />
+                                                    <ComboBoxItem Content="21:9" Tag="2.3333" />
+                                                    <ComboBoxItem Content="2.35:1" Tag="2.35" />
+                                                    <ComboBoxItem Content="2.39:1" Tag="2.39" />
+                                                    <ComboBoxItem Content="4:3" Tag="1.3333" />
+                                                </ComboBox>
+                                            </StackPanel>
+                                            <StackPanel Spacing="5">
+                                                <TextBlock Text="Aspect ratio" Style="{StaticResource FlyoutLabelStyle}" />
+                                                <ComboBox x:Name="AspectRatioCombo" MinWidth="268" SelectedIndex="0"
+                                                          SelectionChanged="AspectRatioCombo_SelectionChanged">
+                                                    <ComboBoxItem Content="Original" Tag="-1" />
+                                                    <ComboBoxItem Content="16:9" Tag="16:9" />
+                                                    <ComboBoxItem Content="4:3" Tag="4:3" />
+                                                    <ComboBoxItem Content="21:9" Tag="21:9" />
+                                                    <ComboBoxItem Content="2.35:1" Tag="2.35:1" />
+                                                </ComboBox>
+                                            </StackPanel>
+
+                                            <ToggleSwitch x:Name="AutoplayToggle" Header="Autoplay next video"
+                                                          Toggled="AutoplayToggle_Toggled" />
                                         </StackPanel>
-                                        <StackPanel Spacing="5">
-                                            <TextBlock Text="Subtitles" FontSize="12" Opacity="0.72" />
-                                            <ComboBox x:Name="SubtitleTrackCombo" MinWidth="248"
-                                                      PlaceholderText="No subtitles"
-                                                      IsEnabled="False"
-                                                      SelectionChanged="SubtitleTrackCombo_SelectionChanged" />
-                                        </StackPanel>
-                                        <StackPanel Spacing="5">
-                                            <TextBlock Text="Playback speed" FontSize="12" Opacity="0.72" />
-                                            <ComboBox x:Name="PlaybackSpeedCombo" MinWidth="248"
-                                                      SelectedIndex="2"
-                                                      SelectionChanged="PlaybackSpeedCombo_SelectionChanged">
-                                                <ComboBoxItem Content="0.5×" Tag="0.5" />
-                                                <ComboBoxItem Content="0.75×" Tag="0.75" />
-                                                <ComboBoxItem Content="1×" Tag="1" />
-                                                <ComboBoxItem Content="1.25×" Tag="1.25" />
-                                                <ComboBoxItem Content="1.5×" Tag="1.5" />
-                                                <ComboBoxItem Content="2×" Tag="2" />
-                                            </ComboBox>
-                                        </StackPanel>
-                                    </StackPanel>
+                                    </ScrollViewer>
                                 </Border>
                             </Flyout>
                         </Button.Flyout>
                     </Button>
+                    <Button x:Name="ZoomButton" Style="{StaticResource PlayerIconButtonStyle}"
+                            Click="ZoomButton_Click" ToolTipService.ToolTip="Zoom: Fit (C)">
+                        <FontIcon Glyph="&#xE71E;" FontSize="16" />
+                    </Button>
                     <Button x:Name="FullscreenButton" Style="{StaticResource PlayerIconButtonStyle}"
-                            Click="FullscreenButton_Click" ToolTipService.ToolTip="Toggle fullscreen">
+                            Click="FullscreenButton_Click" ToolTipService.ToolTip="Fullscreen (F)">
                         <FontIcon x:Name="FullscreenIcon" Glyph="&#xE740;" FontSize="16" />
                     </Button>
                 </StackPanel>

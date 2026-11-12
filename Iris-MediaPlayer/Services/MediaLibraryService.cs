@@ -15,10 +15,20 @@ public static class MediaLibraryService
         ".mts", ".ogv", ".ts", ".webm", ".wmv"
     };
 
+    private static readonly HashSet<string> SubtitleExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".ass", ".idx", ".srt", ".ssa", ".sub", ".sup", ".vtt"
+    };
+
     public static string[] SupportedVideoExtensions => VideoExtensions.OrderBy(extension => extension).ToArray();
+
+    public static string[] SupportedSubtitleExtensions => SubtitleExtensions.OrderBy(extension => extension).ToArray();
 
     public static bool IsSupportedVideoFile(string filePath)
         => VideoExtensions.Contains(Path.GetExtension(filePath));
+
+    public static bool IsSupportedSubtitleFile(string filePath)
+        => SubtitleExtensions.Contains(Path.GetExtension(filePath));
 
     public static MediaItem? TryCreateMediaItem(string filePath)
     {

@@ -10,9 +10,6 @@ public sealed partial class PlaceholderView : UserControl
         InitializeComponent();
     }
 
-    public void SetContent(string title, string description)
-    {
-        PlaceholderTitle.Text = title;
-        PlaceholderDescription.Text = description;
-    }
+    public void SetContent(string glyph, string title, string description)
+        => Message.Show(glyph, title, description);
 }

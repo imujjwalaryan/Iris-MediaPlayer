@@ -33,21 +33,18 @@ public sealed partial class MainWindow : Window
         _store.ScanningChanged += isScanning => AppNavigation.IsEnabled = !isScanning;
 
         HomePage.Initialize(_store);
-        HomePage.PlayRequested += (_, media) => StartPlayback(media);
+        HomePage.PlayRequested += (_, request) => StartPlayback(request);
         HomePage.OpenVideoRequested += (_, _) => PickAndPlayVideo();
         HomePage.AddFolderRequested += (_, _) => PickAndAddFolder();
         HomePage.BrowseLibraryRequested += (_, _) => AppNavigation.SelectedItem = AppNavigation.MenuItems[1];
-        HomePage.SearchTextChanged += (_, text) => LibraryPage.SearchText = text;
 
         LibraryPage.Initialize(_store);
-        LibraryPage.PlayRequested += (_, media) => StartPlayback(media);
-        LibraryPage.OpenVideoRequested += (_, _) => PickAndPlayVideo();
+        LibraryPage.PlayRequested += (_, request) => StartPlayback(request);
         LibraryPage.AddFolderRequested += (_, _) => PickAndAddFolder();
-        LibraryPage.SearchTextChanged += (_, text) => HomePage.SearchText = text;
 
+        PlayerPage.Initialize(_store);
         PlayerPage.BackRequested += (_, _) => ReturnFromPlayer();
         PlayerPage.FullscreenToggleRequested += (_, _) => SetPlayerFullscreen(!_isPlayerFullscreen);
-        PlayerPage.MediaLoaded += (_, media) => _store.RecordRecent(media);
 
         AppNavigation.SelectedItem = AppNavigation.MenuItems[0];
         Closed += MainWindow_Closed;
@@ -71,7 +68,8 @@ public sealed partial class MainWindow : Window
 
         if (args.IsSettingsSelected)
         {
-            ShowPlaceholder("Settings", "Settings will be added as the local library and player features grow.");
+            ShowPlaceholder("", "Settings are on the way",
+                "Player options live in the gear menu while a video plays. App-wide settings will land here.");
             return;
         }
 
@@ -91,7 +89,8 @@ public sealed partial class MainWindow : Window
                 ShowLibrary(LibraryMode.Collections);
                 break;
             case "Jellyfin":
-                ShowPlaceholder("Jellyfin", "Jellyfin support is planned after the local media player is in place.");
+                ShowPlaceholder("", "Jellyfin is coming",
+                    "Stream from your Jellyfin server right inside Iris. This arrives after the local player is finished.");
                 break;
             default:
                 ShowSection(HomePage);
@@ -106,9 +105,9 @@ public sealed partial class MainWindow : Window
         _ = _store.RefreshAsync(showBusy: false);
     }
 
-    private void ShowPlaceholder(string title, string description)
+    private void ShowPlaceholder(string glyph, string title, string description)
     {
-        PlaceholderPage.SetContent(title, description);
+        PlaceholderPage.SetContent(glyph, title, description);
         ShowSection(PlaceholderPage);
     }
 
@@ -119,7 +118,46 @@ public sealed partial class MainWindow : Window
         LibraryPage.Visibility = section == LibraryPage ? Visibility.Visible : Visibility.Collapsed;
         PlaceholderPage.Visibility = section == PlaceholderPage ? Visibility.Visible : Visibility.Collapsed;
         PlayerPage.Visibility = section == PlayerPage ? Visibility.Visible : Visibility.Collapsed;
+        TopBar.Visibility = section == PlayerPage ? Visibility.Collapsed : Visibility.Visible;
     }
+
+    // ---------- Search ----------
+
+    private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput)
+            return;
+
+        // The library page filters live; the dropdown offers quick jumps straight into a video.
+        LibraryPage.SearchText = sender.Text;
+        sender.ItemsSource = _store.Search(sender.Text.Trim()).Take(8).ToList();
+    }
+
+    private void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        if (args.ChosenSuggestion is MediaItem media)
+        {
+            StartPlayback(new PlayRequest(media));
+            return;
+        }
+
+        // Enter with no suggestion chosen shows every match in the library.
+        LibraryPage.SearchText = sender.Text;
+        if (!string.IsNullOrWhiteSpace(sender.Text) && LibraryPage.Visibility != Visibility.Visible)
+            AppNavigation.SelectedItem = AppNavigation.MenuItems[1];
+    }
+
+    private void SearchAccelerator_Invoked(Microsoft.UI.Xaml.Input.KeyboardAccelerator sender,
+        Microsoft.UI.Xaml.Input.KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (TopBar.Visibility == Visibility.Visible)
+        {
+            SearchBox.Focus(FocusState.Keyboard);
+            args.Handled = true;
+        }
+    }
+
+    private void OpenVideo_Click(object sender, RoutedEventArgs e) => PickAndPlayVideo();
 
     // ---------- Opening files and folders ----------
 
@@ -152,7 +190,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        StartPlayback(media);
+        StartPlayback(new PlayRequest(media));
     }
 
     private void InitializePicker(object picker)
@@ -177,15 +215,23 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var items = await e.DataView.GetStorageItemsAsync();
-            var file = items.OfType<StorageFile>()
-                .FirstOrDefault(item => MediaLibraryService.IsSupportedVideoFile(item.Path));
+            var files = (await e.DataView.GetStorageItemsAsync()).OfType<StorageFile>().ToList();
+
+            // A subtitle dropped onto a playing video is added to it.
+            var subtitle = files.FirstOrDefault(item => MediaLibraryService.IsSupportedSubtitleFile(item.Path));
+            if (subtitle is not null && PlayerPage.Visibility == Visibility.Visible)
+            {
+                PlayerPage.AddSubtitle(subtitle.Path);
+                return;
+            }
+
+            var file = files.FirstOrDefault(item => MediaLibraryService.IsSupportedVideoFile(item.Path));
             if (file is null)
                 return;
 
             var media = _store.OpenFile(file.Path);
             if (media is not null)
-                StartPlayback(media);
+                StartPlayback(new PlayRequest(media));
         }
         catch (Exception exception)
         {
@@ -198,7 +244,9 @@ public sealed partial class MainWindow : Window
         if (e.DataView.Contains(StandardDataFormats.StorageItems))
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = "Drop to play in Iris";
+            e.DragUIOverride.Caption = PlayerPage.Visibility == Visibility.Visible
+                ? "Drop a video to play, or subtitles to add them"
+                : "Drop to play in Iris";
             e.DragUIOverride.IsCaptionVisible = true;
             DropOverlay.Visibility = Visibility.Visible;
         }
@@ -211,11 +259,11 @@ public sealed partial class MainWindow : Window
 
     // ---------- Player and fullscreen ----------
 
-    private void StartPlayback(MediaItem media)
+    private void StartPlayback(PlayRequest request)
     {
         _returnToLibrary = LibraryPage.Visibility == Visibility.Visible;
         ShowSection(PlayerPage);
-        PlayerPage.Play(media);
+        PlayerPage.Play(request.Media, request.Queue ?? _store.GetFolderQueue(request.Media));
     }
 
     private void ReturnFromPlayer()

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Iris_MediaPlayer.Views.Controls.TileCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    SizeChanged="Card_SizeChanged">
+
+    <!-- Folder / collection card. DataContext is a LibraryTile. -->
+    <StackPanel Spacing="10">
+        <Grid x:Name="ThumbnailFrame" Height="135"
+              CornerRadius="{StaticResource IrisThumbnailCornerRadius}"
+              Background="{StaticResource IrisThumbnailBrush}">
+            <Image x:Name="PreviewImage" Stretch="UniformToFill" Opacity="0.45" />
+            <Border Background="#66000000" />
+            <Border Width="56" Height="56" CornerRadius="28" Background="#33FFFFFF"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <FontIcon x:Name="TileGlyph" FontSize="24" />
+            </Border>
+        </Grid>
+        <StackPanel Spacing="2" Padding="2,0,2,2">
+            <TextBlock x:Name="NameText" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxLines="1" />
+            <TextBlock x:Name="DetailText" Style="{StaticResource IrisCaptionTextStyle}"
+                       TextTrimming="CharacterEllipsis" MaxLines="1" />
+        </StackPanel>
+    </StackPanel>
+</UserControl>

@@ -30,16 +30,75 @@ public sealed record MediaItem(
         private set => SetProperty(ref _bitrate, value);
     }
 
-    public void SetTechnicalDetails(uint width, uint height, uint bitrate)
+    private string _qualityLabel = string.Empty;
+    /// <summary>Short badge such as "4K" or "1080p"; empty until the file has been read.</summary>
+    public string QualityLabel
+    {
+        get => _qualityLabel;
+        private set => SetProperty(ref _qualityLabel, value);
+    }
+
+    private string _durationLabel = string.Empty;
+    /// <summary>Running time such as "1:42:05"; empty until the file has been read.</summary>
+    public string DurationLabel
+    {
+        get => _durationLabel;
+        private set => SetProperty(ref _durationLabel, value);
+    }
+
+    public void SetTechnicalDetails(uint width, uint height, uint bitrate, System.TimeSpan duration)
     {
         Resolution = width > 0 && height > 0 ? $"{width} × {height}" : "Resolution unavailable";
         Bitrate = bitrate > 0 ? FormatBitrate(bitrate) : "Bitrate unavailable";
+        QualityLabel = GetQualityLabel(System.Math.Min(width, height));
+        DurationLabel = duration > System.TimeSpan.Zero
+            ? duration.ToString(duration.TotalHours >= 1 ? @"h\:mm\:ss" : @"m\:ss")
+            : string.Empty;
     }
+
+    private static string GetQualityLabel(uint shortSide) => shortSide switch
+    {
+        >= 2160 => "4K",
+        >= 1440 => "1440p",
+        >= 1080 => "1080p",
+        >= 720 => "720p",
+        > 0 => "SD",
+        _ => string.Empty
+    };
 
     private static string FormatBitrate(uint bitsPerSecond)
         => bitsPerSecond >= 1_000_000
             ? $"{bitsPerSecond / 1_000_000d:0.0} Mbps"
             : $"{bitsPerSecond / 1_000d:0} kbps";
+
+    private double _watchProgress;
+    /// <summary>How much of the video has been watched, from 0 to 1.</summary>
+    public double WatchProgress
+    {
+        get => _watchProgress;
+        private set => SetProperty(ref _watchProgress, value);
+    }
+
+    private string _watchRemaining = string.Empty;
+    public string WatchRemaining
+    {
+        get => _watchRemaining;
+        private set => SetProperty(ref _watchRemaining, value);
+    }
+
+    public void SetWatchProgress(double positionSeconds, double durationSeconds)
+    {
+        if (durationSeconds <= 0)
+            return;
+
+        WatchProgress = System.Math.Clamp(positionSeconds / durationSeconds, 0, 1);
+        var left = System.TimeSpan.FromSeconds(System.Math.Max(0, durationSeconds - positionSeconds));
+        WatchRemaining = left.TotalHours >= 1
+            ? $"{(int)left.TotalHours} h {left.Minutes} min left"
+            : left.TotalMinutes >= 1
+                ? $"{(int)left.TotalMinutes} min left"
+                : "Less than a minute left";
+    }
 
     private Microsoft.UI.Xaml.Media.ImageSource? _thumbnail;
     public Microsoft.UI.Xaml.Media.ImageSource? Thumbnail

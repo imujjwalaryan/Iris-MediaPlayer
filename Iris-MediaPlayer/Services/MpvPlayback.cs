@@ -1,10 +1,18 @@
 using Microsoft.UI.Dispatching;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace Iris_MediaPlayer.Services;
+
+public enum VideoZoomMode
+{
+    Fit,
+    Fill,
+    Stretch
+}
 
 /// <summary>Owns a libmpv instance configured to render into a WinUI composition swap chain.</summary>
 internal sealed class MpvPlayback : IDisposable
@@ -74,6 +82,9 @@ internal sealed class MpvPlayback : IDisposable
             Observe("speed", DoubleFormat);
             Observe("media-title", (int)MpvPropertyFormat.String);
             Observe("idle-active", FlagFormat);
+            // With keep-open=yes mpv pauses on the last frame instead of ending the file,
+            // so end of playback is reported through this property.
+            Observe("eof-reached", FlagFormat);
 
             _eventThread = new Thread(EventLoop)
             {
@@ -90,14 +101,108 @@ internal sealed class MpvPlayback : IDisposable
         }
     }
 
-    public void LoadFile(string filePath)
+    /// <summary>Opens a file, optionally starting at <paramref name="startSeconds"/> (used for resume).</summary>
+    public void LoadFile(string filePath, double startSeconds = 0)
     {
+        var start = startSeconds > 0 ? startSeconds.ToString("0.###", CultureInfo.InvariantCulture) : "0";
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            ThrowIfError(MpvNative.mpv_set_property_string(_handle, "start", start), "set start position");
+        }
         RunCommand("loadfile", filePath, "replace");
     }
 
     public void Stop()
     {
         RunCommand("stop");
+    }
+
+    public void SetPaused(bool paused)
+    {
+        var value = paused ? 1 : 0;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            ThrowIfError(MpvNative.mpv_set_property_flag(_handle, "pause", FlagFormat, ref value), "set pause");
+        }
+    }
+
+    /// <summary>Restarts the current file from the beginning and resumes playback.</summary>
+    public void Replay()
+    {
+        Seek(0);
+        SetPaused(false);
+    }
+
+    public void SetSubtitleDelay(double seconds) => SetDouble("sub-delay", seconds, "set subtitle delay");
+
+    public void SetAudioDelay(double seconds) => SetDouble("audio-delay", seconds, "set audio delay");
+
+    /// <summary>Overrides the video aspect ratio, for example "16:9". Pass "-1" to use the file's own ratio.</summary>
+    public void SetAspectOverride(string aspect)
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            ThrowIfError(MpvNative.mpv_set_property_string(_handle, "video-aspect-override", aspect), "set aspect ratio");
+        }
+    }
+
+    /// <summary>
+    /// How the video fills the window. Fit letterboxes, Fill zooms until the window is covered
+    /// (cropping the edges), Stretch ignores the aspect ratio.
+    /// </summary>
+    public void SetZoomMode(VideoZoomMode mode)
+    {
+        var keepAspect = mode == VideoZoomMode.Stretch ? 0 : 1;
+        var panscan = mode == VideoZoomMode.Fill ? 1.0 : 0.0;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            ThrowIfError(MpvNative.mpv_set_property_flag(_handle, "keepaspect", FlagFormat, ref keepAspect), "set zoom mode");
+            ThrowIfError(MpvNative.mpv_set_property_double(_handle, "panscan", DoubleFormat, ref panscan), "set zoom mode");
+        }
+    }
+
+    /// <summary>
+    /// Crops the video to <paramref name="ratio"/> (width ÷ height), centred, for example to remove
+    /// black bars burned into a widescreen film. Pass null to show the whole frame.
+    /// </summary>
+    public void SetCropRatio(double? ratio)
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            var crop = string.Empty;
+            if (ratio is > 0
+                && MpvNative.mpv_get_property(_handle, "width", Int64Format, out var width) >= 0
+                && MpvNative.mpv_get_property(_handle, "height", Int64Format, out var height) >= 0
+                && width > 0 && height > 0)
+            {
+                var sourceRatio = (double)width / height;
+                long cropWidth = width, cropHeight = height;
+                if (sourceRatio > ratio.Value)
+                    cropWidth = (long)Math.Round(height * ratio.Value);
+                else
+                    cropHeight = (long)Math.Round(width / ratio.Value);
+
+                crop = $"{cropWidth}x{cropHeight}+{(width - cropWidth) / 2}+{(height - cropHeight) / 2}";
+            }
+            ThrowIfError(MpvNative.mpv_set_property_string(_handle, "video-crop", crop), "crop video");
+        }
+    }
+
+    /// <summary>Loads an external subtitle file and selects it.</summary>
+    public void AddSubtitle(string filePath) => RunCommand("sub-add", filePath, "select");
+
+    private void SetDouble(string property, double value, string action)
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            ThrowIfError(MpvNative.mpv_set_property_double(_handle, property, DoubleFormat, ref value), action);
+        }
     }
 
     public bool TogglePause()
@@ -141,14 +246,7 @@ internal sealed class MpvPlayback : IDisposable
         }
     }
 
-    public void SetSpeed(double speed)
-    {
-        lock (_gate)
-        {
-            ThrowIfDisposed();
-            ThrowIfError(MpvNative.mpv_set_property_double(_handle, "speed", DoubleFormat, ref speed), "set playback speed");
-        }
-    }
+    public void SetSpeed(double speed) => SetDouble("speed", speed, "set playback speed");
 
     public void SetAudioTrack(long trackId) => SetTrack("aid", trackId);
 

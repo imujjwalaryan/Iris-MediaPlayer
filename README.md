@@ -10,10 +10,29 @@ Iris is a Windows media player I’m building with C# and WinUI 3. It uses mpv a
 - Open or drag and drop a video for instant playback
 - Play video in-app with mpv
 - Pause, seek, adjust volume, skip 10 seconds, and toggle fullscreen
-- Select audio and subtitle tracks and change playback speed
-- Save recently played items between launches
+- Click the video to pause, double-click for fullscreen, with keyboard shortcuts for everything
+- Resume where you left off, with a Continue watching row on Home
+- Next and previous through the folder or collection, with autoplay of the next video
+- Select audio and subtitle tracks, load external subtitles, and adjust subtitle and audio delay
+- Change playback speed, aspect ratio, zoom (fit, fill screen, stretch) and crop
+- Remember volume and recently played items between launches
 
-Jellyfin and playback progress aren’t hooked up yet.
+Jellyfin isn’t hooked up yet.
+
+## Player shortcuts
+
+| Key | Action |
+| --- | --- |
+| Space / K | Play or pause |
+| ← / → | Back or forward 5 seconds |
+| J / L | Back or forward 10 seconds |
+| ↑ / ↓ | Volume up or down |
+| M | Mute |
+| F / F11 | Fullscreen |
+| Esc | Exit fullscreen, then leave the player |
+| Shift+N / Shift+P | Next or previous video |
+| C | Cycle zoom: Fit, Fill screen, Stretch |
+| Z / X | Subtitle delay −0.1 s / +0.1 s |
 
 ## What I’m using
 

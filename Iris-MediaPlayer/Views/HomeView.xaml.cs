@@ -7,105 +7,160 @@ using System.Linq;
 
 namespace Iris_MediaPlayer.Views;
 
-/// <summary>Home page: featured video, recently played, saved folders and quick actions.</summary>
+/// <summary>
+/// Home page: a featured video (the one to resume, or the newest) with full-width artwork,
+/// then rows for Continue watching, Recently added and Recently played.
+/// </summary>
 public sealed partial class HomeView : UserControl
 {
+    private const int RowSize = 16;
+
     private LibraryStore? _store;
     private MediaItem? _featured;
+    private bool _hasScanned;
 
     public HomeView()
     {
         InitializeComponent();
     }
 
-    public event EventHandler<MediaItem>? PlayRequested;
+    public event EventHandler<PlayRequest>? PlayRequested;
     public event EventHandler? OpenVideoRequested;
     public event EventHandler? AddFolderRequested;
     public event EventHandler? BrowseLibraryRequested;
-    public event EventHandler<string>? SearchTextChanged;
-
-    /// <summary>Keeps this search box in sync with the library page's search box.</summary>
-    public string SearchText
-    {
-        get => SearchBox.Text;
-        set
-        {
-            if (!string.Equals(SearchBox.Text, value, StringComparison.Ordinal))
-                SearchBox.Text = value;
-        }
-    }
 
     public void Initialize(LibraryStore store)
     {
         _store = store;
-        FolderList.ItemsSource = store.Folders;
-        store.LibraryChanged += OnLibraryChanged;
-        store.RecentMediaChanged += OnRecentMediaChanged;
-        OnLibraryChanged();
-        OnRecentMediaChanged();
-    }
-
-    private void OnLibraryChanged()
-    {
-        if (_store is null)
-            return;
-
-        FoldersEmpty.Visibility = _store.Folders.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        UpdateFeatured();
-    }
-
-    private void OnRecentMediaChanged()
-    {
-        if (_store is null)
-            return;
-
-        var recent = _store.RecentMedia;
-        RecentItems.ItemsSource = recent;
-        RecentlyPlayedEmpty.Visibility = recent.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        RecentItems.Visibility = recent.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    private void UpdateFeatured()
-    {
-        _featured = _store?.AllMedia.OrderByDescending(media => media.LastModified).FirstOrDefault();
-        FeaturedImage.DataContext = _featured;
-
-        if (_featured is null)
+        store.LibraryChanged += () =>
         {
-            FeaturedTitle.Text = "Your next favorite starts here";
-            FeaturedSubtitle.Text = "Add a folder and Iris will discover your movies and shows.";
-            FeaturedPlayButton.IsEnabled = false;
+            _hasScanned = true;
+            Refresh();
+        };
+        store.RecentMediaChanged += Refresh;
+        store.ContinueWatchingChanged += Refresh;
+        Refresh();
+    }
+
+    private void Refresh()
+    {
+        if (_store is null)
+            return;
+
+        var continueWatching = _store.ContinueWatching;
+        var recentlyAdded = _store.GetRecentlyAdded(RowSize);
+        var recentlyPlayed = _store.RecentMedia;
+
+        ShowRow(ContinueSection, ContinueItems, continueWatching);
+        ShowRow(AddedSection, AddedItems, recentlyAdded);
+        ShowRow(RecentSection, RecentItems, recentlyPlayed);
+
+        var resume = continueWatching.FirstOrDefault();
+        UpdateHero(resume ?? recentlyAdded.FirstOrDefault() ?? recentlyPlayed.FirstOrDefault(), isResume: resume is not null);
+    }
+
+    private static void ShowRow(FrameworkElement section, ItemsRepeater items, System.Collections.Generic.IReadOnlyList<MediaItem> media)
+    {
+        items.ItemsSource = media;
+        section.Visibility = media.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    // ---------- Hero ----------
+
+    private async void UpdateHero(MediaItem? featured, bool isResume)
+    {
+        if (featured is null)
+        {
+            _featured = null;
+            Hero.Visibility = Visibility.Collapsed;
+            UpdateWelcome();
             return;
         }
 
-        FeaturedTitle.Text = _featured.Title;
-        FeaturedSubtitle.Text = $"In {_featured.FolderName}  ·  {_featured.FileFormat}  ·  Added {_featured.LastModified:d}";
-        FeaturedPlayButton.IsEnabled = true;
+        WelcomeState.Visibility = Visibility.Collapsed;
+        Hero.Visibility = Visibility.Visible;
+        HeroEyebrow.Text = isResume ? "CONTINUE WATCHING" : "RECENTLY ADDED";
+        HeroTitle.Text = featured.Title;
+        HeroMeta.Text = $"{featured.FolderName}  ·  {featured.FileFormat}  ·  {featured.LastModified:d}";
+        HeroPlayText.Text = isResume ? "Resume" : "Play";
+        HeroProgressPanel.Visibility = isResume ? Visibility.Visible : Visibility.Collapsed;
+        HeroProgress.Value = featured.WatchProgress;
+        HeroRemaining.Text = featured.WatchRemaining;
+
+        if (ReferenceEquals(featured, _featured))
+            return;
+
+        _featured = featured;
+        HeroImage.Source = featured.Thumbnail;
+        var backdrop = await _store!.GetBackdropAsync(featured);
+        if (ReferenceEquals(featured, _featured) && backdrop is not null)
+            HeroImage.Source = backdrop;
     }
 
-    private void FeaturedPlay_Click(object sender, RoutedEventArgs e)
+    private void UpdateWelcome()
+    {
+        // Avoid flashing "no videos" while the first scan is still running.
+        if (_store is null || (!_hasScanned && _store.FolderPaths.Count > 0))
+        {
+            WelcomeState.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (_store.FolderPaths.Count == 0)
+        {
+            WelcomeState.Show("", "Welcome to Iris",
+                "Add a folder of videos and Iris will build your library. You can also open a single file to play it right away.",
+                "Add folder", "Open video");
+        }
+        else
+        {
+            WelcomeState.Show("", "No videos found yet",
+                "Iris didn’t find any videos in your folders. Add another folder, or open a single file to play it.",
+                "Add folder", "Open video");
+        }
+        WelcomeState.Visibility = Visibility.Visible;
+    }
+
+    private void HeroPlay_Click(object sender, RoutedEventArgs e)
     {
         if (_featured is not null)
-            PlayRequested?.Invoke(this, _featured);
+            PlayRequested?.Invoke(this, new PlayRequest(_featured));
     }
+
+    private void BrowseLibrary_Click(object sender, RoutedEventArgs e) => BrowseLibraryRequested?.Invoke(this, EventArgs.Empty);
+
+    private void WelcomeAction_Click(object? sender, EventArgs e) => AddFolderRequested?.Invoke(this, EventArgs.Empty);
+
+    private void WelcomeSecondaryAction_Click(object? sender, EventArgs e) => OpenVideoRequested?.Invoke(this, EventArgs.Empty);
+
+    // ---------- Rows ----------
 
     private void MediaCard_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button { Tag: string filePath } && _store?.ResolveMedia(filePath) is { } media)
-            PlayRequested?.Invoke(this, media);
+            PlayRequested?.Invoke(this, new PlayRequest(media));
     }
 
-    private async void RemoveFolder_Click(object sender, RoutedEventArgs e)
+    private void ContinueCard_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: string path } && _store is not null)
-            await _store.RemoveFolderAsync(path);
+        // Use the Continue watching instance so its saved progress is the one resumed.
+        if (sender is not Button { Tag: string filePath } || _store is null)
+            return;
+
+        var media = _store.ContinueWatching.FirstOrDefault(item =>
+                        string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
+                    ?? _store.ResolveMedia(filePath);
+        if (media is not null)
+            PlayRequested?.Invoke(this, new PlayRequest(media));
     }
 
-    private void OpenVideo_Click(object sender, RoutedEventArgs e) => OpenVideoRequested?.Invoke(this, EventArgs.Empty);
+    private void ScrollRowBack_Click(object sender, RoutedEventArgs e) => ScrollRow(sender, -1);
 
-    private void AddFolder_Click(object sender, RoutedEventArgs e) => AddFolderRequested?.Invoke(this, EventArgs.Empty);
+    private void ScrollRowForward_Click(object sender, RoutedEventArgs e) => ScrollRow(sender, 1);
 
-    private void LibraryShortcut_Click(object sender, RoutedEventArgs e) => BrowseLibraryRequested?.Invoke(this, EventArgs.Empty);
-
-    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => SearchTextChanged?.Invoke(this, SearchBox.Text);
+    private void ScrollRow(object sender, int direction)
+    {
+        if (sender is FrameworkElement { Tag: string name } && FindName(name) is ScrollViewer scroller)
+            scroller.ChangeView(scroller.HorizontalOffset + direction * scroller.ViewportWidth * 0.8, null, null);
+    }
 }

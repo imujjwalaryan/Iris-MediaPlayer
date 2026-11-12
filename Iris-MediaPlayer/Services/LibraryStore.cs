@@ -1,5 +1,6 @@
 using Iris_MediaPlayer.Models;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
@@ -23,6 +24,7 @@ public sealed class LibraryStore : IDisposable
     private const string FolderSettingsKey = "MediaFolders";
     private const string RecentFilesSettingsKey = "RecentMediaFiles";
     private const int MaxRecentItems = 8;
+    private const int MaxContinueWatchingItems = 12;
 
     private readonly List<string> _folderPaths = [];
     private readonly List<MediaItem> _allMedia = [];
@@ -31,6 +33,8 @@ public sealed class LibraryStore : IDisposable
     private readonly List<FileSystemWatcher> _folderWatchers = [];
     private readonly DispatcherQueue _dispatcherQueue;
     private readonly DispatcherQueueTimer _refreshTimer;
+    private readonly PlaybackProgressStore _progress = new();
+    private readonly Dictionary<string, ImageSource> _backdrops = new(StringComparer.OrdinalIgnoreCase);
 
     public LibraryStore(DispatcherQueue dispatcherQueue)
     {
@@ -43,6 +47,7 @@ public sealed class LibraryStore : IDisposable
         LoadFolderPaths();
         LoadRecentPaths();
         LoadCollections();
+        RefreshContinueWatching();
     }
 
     public IReadOnlyList<string> FolderPaths => _folderPaths;
@@ -50,12 +55,16 @@ public sealed class LibraryStore : IDisposable
     public ObservableCollection<MediaFolder> Folders { get; } = [];
     public ObservableCollection<MediaCollection> Collections { get; } = [];
     public IReadOnlyList<MediaItem> RecentMedia { get; private set; } = [];
+    public IReadOnlyList<MediaItem> ContinueWatching { get; private set; } = [];
 
     /// <summary>Raised after a folder scan finishes and <see cref="AllMedia"/> is up to date.</summary>
     public event Action? LibraryChanged;
 
     /// <summary>Raised when <see cref="RecentMedia"/> changes.</summary>
     public event Action? RecentMediaChanged;
+
+    /// <summary>Raised when the videos in <see cref="ContinueWatching"/> or their order change.</summary>
+    public event Action? ContinueWatchingChanged;
 
     /// <summary>Raised with true when a user-visible scan starts and false when it ends.</summary>
     public event Action<bool>? ScanningChanged;
@@ -78,12 +87,15 @@ public sealed class LibraryStore : IDisposable
             Folders.Clear();
             foreach (var path in _folderPaths)
             {
-                var count = _allMedia.Count(media => string.Equals(media.LibraryRootPath, path, StringComparison.OrdinalIgnoreCase));
-                Folders.Add(new MediaFolder(path, PathUtils.GetFolderName(path), count));
+                var media = _allMedia.Where(item => string.Equals(item.LibraryRootPath, path, StringComparison.OrdinalIgnoreCase)).ToList();
+                var preview = media.OrderByDescending(item => item.LastModified).FirstOrDefault();
+                Folders.Add(new MediaFolder(path, PathUtils.GetFolderName(path), media.Count, preview));
             }
 
             LibraryChanged?.Invoke();
             RefreshRecentMedia();
+            // A rescan creates new MediaItem objects, so rebuild the list even if paths are unchanged.
+            RefreshContinueWatching();
             _ = LoadThumbnailsAsync(_allMedia.ToArray());
         }
         finally
@@ -117,10 +129,14 @@ public sealed class LibraryStore : IDisposable
         try
         {
             return Directory.GetDirectories(parentPath)
-                .Select(path => new MediaFolder(path, PathUtils.GetFolderName(path),
-                    _allMedia.Count(media => PathUtils.IsPathWithin(media.FolderPath, path))))
+                .Select(path =>
+                {
+                    var media = _allMedia.Where(item => PathUtils.IsPathWithin(item.FolderPath, path)).ToList();
+                    var preview = media.OrderByDescending(item => item.LastModified).FirstOrDefault();
+                    return new MediaFolder(path, PathUtils.GetFolderName(path), media.Count, preview);
+                })
                 .Where(folder => folder.MediaCount > 0)
-                .OrderBy(folder => folder.Name, StringComparer.CurrentCultureIgnoreCase)
+                .OrderBy(folder => folder.Name, NaturalStringComparer.Instance)
                 .ToList();
         }
         catch (IOException)
@@ -224,6 +240,76 @@ public sealed class LibraryStore : IDisposable
         return media;
     }
 
+    /// <summary>
+    /// The videos in <paramref name="media"/>'s folder in natural name order, used for next/previous.
+    /// The list always contains <paramref name="media"/> itself.
+    /// </summary>
+    public IReadOnlyList<MediaItem> GetFolderQueue(MediaItem media)
+    {
+        try
+        {
+            var queue = Directory.EnumerateFiles(media.FolderPath)
+                .Where(MediaLibraryService.IsSupportedVideoFile)
+                .OrderBy(Path.GetFileName, NaturalStringComparer.Instance)
+                .Select(ResolveMedia)
+                .OfType<MediaItem>()
+                .ToList();
+
+            var index = queue.FindIndex(item => string.Equals(item.FilePath, media.FilePath, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+                return [media];
+
+            queue[index] = media;
+            return queue;
+        }
+        catch (IOException)
+        {
+            return [media];
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return [media];
+        }
+    }
+
+    /// <summary>The newest videos in the library, by file date.</summary>
+    public IReadOnlyList<MediaItem> GetRecentlyAdded(int count)
+        => _allMedia.OrderByDescending(media => media.LastModified).Take(count).ToList();
+
+    /// <summary>Library videos whose title or folder contains <paramref name="query"/>.</summary>
+    public IEnumerable<MediaItem> Search(string query)
+        => string.IsNullOrWhiteSpace(query)
+            ? []
+            : _allMedia.Where(media => media.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+                                       || media.FolderName.Contains(query, StringComparison.CurrentCultureIgnoreCase));
+
+    /// <summary>
+    /// A large frame for full-width artwork such as the Home hero. Card thumbnails are too small
+    /// to stretch across the page. Falls back to the card thumbnail.
+    /// </summary>
+    public async Task<ImageSource?> GetBackdropAsync(MediaItem media)
+    {
+        if (_backdrops.TryGetValue(media.FilePath, out var cached))
+            return cached;
+
+        try
+        {
+            var file = await StorageFile.GetFileFromPathAsync(media.FilePath);
+            using var thumbnail = await file.GetThumbnailAsync(ThumbnailMode.SingleItem, 1600, ThumbnailOptions.ResizeThumbnail);
+            if (thumbnail is null || thumbnail.Size == 0)
+                return media.Thumbnail;
+
+            var bitmap = new BitmapImage();
+            await bitmap.SetSourceAsync(thumbnail);
+            _backdrops[media.FilePath] = bitmap;
+            return bitmap;
+        }
+        catch (Exception)
+        {
+            return media.Thumbnail;
+        }
+    }
+
     /// <summary>All library and one-off media, de-duplicated and sorted by title.</summary>
     public List<MediaItem> GetAllKnownMedia()
         => _allMedia
@@ -243,7 +329,7 @@ public sealed class LibraryStore : IDisposable
             {
                 var file = await StorageFile.GetFileFromPathAsync(media.FilePath);
                 var properties = await file.Properties.GetVideoPropertiesAsync();
-                media.SetTechnicalDetails(properties.Width, properties.Height, properties.Bitrate);
+                media.SetTechnicalDetails(properties.Width, properties.Height, properties.Bitrate, properties.Duration);
 
                 if (media.Thumbnail is null)
                 {
@@ -304,6 +390,44 @@ public sealed class LibraryStore : IDisposable
         {
             ApplicationData.Current.LocalSettings.Values.Remove(RecentFilesSettingsKey);
         }
+    }
+
+    // ---------- Playback progress ----------
+
+    /// <summary>Where to resume <paramref name="media"/>, or null to start from the beginning.</summary>
+    public double? GetResumePosition(MediaItem media) => _progress.GetResumePosition(media.FilePath);
+
+    public void SaveProgress(MediaItem media, double positionSeconds, double durationSeconds)
+    {
+        media.SetWatchProgress(positionSeconds, durationSeconds);
+        _progress.Save(media.FilePath, positionSeconds, durationSeconds);
+        RefreshContinueWatching();
+    }
+
+    private void RefreshContinueWatching()
+    {
+        var items = new List<MediaItem>();
+        foreach (var (filePath, entry) in _progress.MostRecent())
+        {
+            if (items.Count == MaxContinueWatchingItems)
+                break;
+
+            var media = ResolveMedia(filePath);
+            if (media is null)
+                continue;
+
+            media.SetWatchProgress(entry.Position, entry.Duration);
+            items.Add(media);
+        }
+
+        var unchanged = items.Count == ContinueWatching.Count
+            && items.Zip(ContinueWatching).All(pair => ReferenceEquals(pair.First, pair.Second));
+        if (unchanged)
+            return;
+
+        ContinueWatching = items;
+        ContinueWatchingChanged?.Invoke();
+        _ = LoadThumbnailsAsync(items);
     }
 
     // ---------- Collections ----------
