@@ -1742,7 +1742,8 @@ public sealed partial class PlayerView : UserControl
         var percent = 100d;
         if (_controlsVisible && !_isMini && height > 0)
         {
-            var covered = PlayerControlsBar.ActualHeight + PlayerControlsBar.Margin.Bottom + 8;
+            // The strip's top padding is only the fade; keep subtitles just above the time row.
+            var covered = PlayerControlsBar.ActualHeight - PlayerControlsBar.Padding.Top + 16;
             percent = 100 * (1 - covered / height);
         }
 

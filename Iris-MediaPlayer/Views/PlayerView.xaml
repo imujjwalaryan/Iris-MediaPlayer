@@ -11,9 +11,9 @@
         <!-- The big light play/pause button in the controls bar and the mini player. -->
         <Style x:Key="PlayerBigButtonStyle" TargetType="Button" BasedOn="{StaticResource IrisIconButtonStyle}">
             <Setter Property="Template" Value="{StaticResource IrisFilledButtonTemplate}" />
-            <Setter Property="Width" Value="52" />
-            <Setter Property="Height" Value="52" />
-            <Setter Property="CornerRadius" Value="26" />
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Height" Value="44" />
+            <Setter Property="CornerRadius" Value="22" />
             <Setter Property="Background" Value="{StaticResource IrisLightBrush}" />
             <Setter Property="Foreground" Value="{StaticResource IrisOnLightBrush}" />
         </Style>
@@ -66,10 +66,10 @@
                     </LinearGradientBrush>
                 </Border.Background>
             </Border>
-            <Border VerticalAlignment="Bottom" Height="260">
+            <Border VerticalAlignment="Bottom" Height="200">
                 <Border.Background>
                     <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
-                        <GradientStop Color="#99000000" Offset="0" />
+                        <GradientStop Color="#59000000" Offset="0" />
                         <GradientStop Color="#00000000" Offset="1" />
                     </LinearGradientBrush>
                 </Border.Background>
@@ -135,7 +135,7 @@
         </Grid>
 
         <!-- Notices above the controls: resume (left) and Up next (right) -->
-        <Grid x:Name="NoticeArea" VerticalAlignment="Bottom" Margin="24,0,24,156">
+        <Grid x:Name="NoticeArea" VerticalAlignment="Bottom" Margin="24,0,24,124">
             <Border x:Name="ResumeBanner" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Bottom"
                     Padding="16,8,8,8" CornerRadius="18" Background="{StaticResource IrisGlassBrush}"
                     BorderBrush="#14FFFFFF" BorderThickness="1">
@@ -191,11 +191,17 @@
         </Grid>
 
         <!-- Floating controls -->
-        <Border x:Name="PlayerControlsBar" VerticalAlignment="Bottom" Margin="24,0,24,24"
-                Padding="18,12" CornerRadius="22" Background="{StaticResource IrisControlsGlassBrush}"
-                BorderBrush="#1AFFFFFF" BorderThickness="1"
+        <!-- Flat strip across the bottom edge on a light shade (about 80% see-through at the bottom). -->
+        <Border x:Name="PlayerControlsBar" VerticalAlignment="Bottom" Padding="24,28,24,12"
                 SizeChanged="PlayerControlsBar_SizeChanged"
                 PointerEntered="Bars_PointerEntered" PointerExited="Bars_PointerExited">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#00000000" Offset="0" />
+                    <GradientStop Color="#26000000" Offset="0.45" />
+                    <GradientStop Color="#33000000" Offset="1" />
+                </LinearGradientBrush>
+            </Border.Background>
             <StackPanel Spacing="6">
                 <Grid ColumnSpacing="14">
                     <Grid.ColumnDefinitions>
