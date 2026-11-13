@@ -73,6 +73,8 @@ installers choose this for you).
 ```powershell
 ```
 
+also works where Windows PowerShell is set to allow only signed scripts.
+
 The script publishes Iris in Release and packs it with [WiX Toolset 5](https://wixtoolset.org)
 (free; restored from NuGet on the first build). Raise `<Version>` in
 `Iris-MediaPlayer/Iris-MediaPlayer.csproj` for every release so the new MSI upgrades the old one.
