@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Activated += (_, e) => PlayerPage.SetWindowActive(e.WindowActivationState != WindowActivationState.Deactivated);
         WindowChrome.ExtendIntoTitleBar(this, AppTitleBar);
         _sectionBeforePlayer = HomePage;
 

@@ -23,6 +23,7 @@ public sealed partial class PlayerWindow : Window
     public PlayerWindow(IReadOnlyList<string> filePaths)
     {
         InitializeComponent();
+        Activated += (_, e) => Player.SetWindowActive(e.WindowActivationState != WindowActivationState.Deactivated);
         WindowChrome.ExtendIntoTitleBar(this, AppTitleBar);
         WindowChrome.SizeAndCenter(this, 1280, 760);
 

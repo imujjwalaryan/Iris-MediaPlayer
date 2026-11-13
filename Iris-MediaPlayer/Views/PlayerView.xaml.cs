@@ -1658,8 +1658,10 @@ public sealed partial class PlayerView : UserControl
     private void Player_PointerExited(object sender, PointerRoutedEventArgs e)
     {
         // Exits from child elements bubble up here too; only react when the pointer really left.
-        if (PointerHelper.IsInside(PlayerRoot, e))
+        // Leaving through a window edge reports a last position just inside, so ignore the outer pixels.
+        if (PointerHelper.IsInside(PlayerRoot, e, edge: 3))
             return;
+        _isPointerOverBars = false;
         _isPointerInside = false;
         // The hidden cursor is per thread, so give it back as soon as the pointer leaves the video.
         SetCursorHidden(false);
@@ -1671,8 +1673,28 @@ public sealed partial class PlayerView : UserControl
 
     private void Bars_PointerExited(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is FrameworkElement bar && !PointerHelper.IsInside(bar, e))
+        // The controls strip touches the window's bottom edge; leaving the window through it
+        // reports a position still on the strip, so ignore the outer pixels.
+        if (sender is FrameworkElement bar && !PointerHelper.IsInside(bar, e, edge: 3))
             _isPointerOverBars = false;
+    }
+
+    /// <summary>
+    /// Called by the window when it gains or loses focus. Switching to another app ends any hover,
+    /// so the controls hide as usual instead of waiting for the pointer to come back.
+    /// </summary>
+    public void SetWindowActive(bool active)
+    {
+        if (active)
+            return;
+        _isPointerOverBars = false;
+        _isPointerInside = false;
+        SetCursorHidden(false);
+        if (_controlsVisible && !_isMini)
+        {
+            _controlsHideTimer.Stop();
+            _controlsHideTimer.Start();
+        }
     }
 
     /// <summary>Shows the bars; while the video plays they hide again after a few idle seconds.</summary>
@@ -1701,10 +1723,17 @@ public sealed partial class PlayerView : UserControl
     private void ControlsHideTimer_Tick(DispatcherQueueTimer sender, object args)
     {
         SyncPauseState();
-        // Keep the controls up while the user is using them, the video is paused or has ended.
-        if (_isMini || _isPointerOverBars || _isSheetOpen || _isDraggingSeek || _isPaused || !_isFileLoaded
-            || UpNextCard.Visibility == Visibility.Visible)
+        if (_isMini || !_controlsVisible)
             return;
+
+        // Keep the controls up while they're in use, the video is paused or has ended,
+        // and look again shortly so they still hide once that's over.
+        if (_isPointerOverBars || _isSheetOpen || _isDraggingSeek || _isPaused || !_isFileLoaded
+            || UpNextCard.Visibility == Visibility.Visible)
+        {
+            _controlsHideTimer.Start();
+            return;
+        }
         SetControlsVisible(false);
     }
 

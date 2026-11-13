@@ -203,9 +203,10 @@ internal static class PointerHelper
     /// PointerExited bubbles up from child elements, so a container gets it while the pointer is still
     /// inside. This tells the two apart.
     /// </summary>
-    public static bool IsInside(FrameworkElement element, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    public static bool IsInside(FrameworkElement element, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e, double edge = 0)
     {
         var point = e.GetCurrentPoint(element).Position;
-        return point.X >= 0 && point.Y >= 0 && point.X < element.ActualWidth && point.Y < element.ActualHeight;
+        return point.X >= edge && point.Y >= edge
+               && point.X < element.ActualWidth - edge && point.Y < element.ActualHeight - edge;
     }
 }
