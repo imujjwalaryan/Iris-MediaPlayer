@@ -32,6 +32,7 @@ public sealed partial class LibraryView : UserControl
 
     private readonly DispatcherQueueTimer _entranceTimer;
     private LibraryStore? _store;
+    private VideoMenu? _menu;
     private LibraryMode _mode = LibraryMode.Videos;
     private string _query = string.Empty;
     private string _sort = "Name";
@@ -88,6 +89,10 @@ public sealed partial class LibraryView : UserControl
     {
         _store = store;
         store.LibraryChanged += OnLibraryChanged;
+        // Counts, artwork and the open collection change when videos are added or removed.
+        store.CollectionsChanged += () => RefreshItems();
+        _menu = new VideoMenu(store, this);
+        _menu.PlayRequested += (_, request) => PlayRequested?.Invoke(this, WithQueue(request.Media));
         store.ScanningChanged += isScanning =>
         {
             if (isScanning)
@@ -162,6 +167,8 @@ public sealed partial class LibraryView : UserControl
         var inCollection = _mode == LibraryMode.Collections && _selectedCollection is not null;
         PrimaryActionButton.Visibility = inCollection ? Visibility.Collapsed : Visibility.Visible;
         PrimaryActionText.Text = _mode == LibraryMode.Collections ? "New collection" : "Add folder";
+        if (_menu is not null)
+            _menu.CurrentCollection = inCollection ? _selectedCollection : null;
         EditCollectionButton.Visibility = inCollection ? Visibility.Visible : Visibility.Collapsed;
         CollectionMoreButton.Visibility = EditCollectionButton.Visibility;
 
@@ -593,13 +600,24 @@ public sealed partial class LibraryView : UserControl
         if (sender is not Button { Tag: string filePath } || _store?.ResolveMedia(filePath) is not { } media)
             return;
 
-        // Inside a collection, next/previous follow the collection's order. Everywhere else
-        // the player falls back to the other videos in the same folder.
-        var queue = _mode == LibraryMode.Collections && _selectedCollection is not null
-            ? GetCollectionMedia(_selectedCollection)
-            : null;
         MediaCard.PrepareToPlay(sender);
-        PlayRequested?.Invoke(this, new PlayRequest(media, queue));
+        PlayRequested?.Invoke(this, WithQueue(media));
+    }
+
+    /// <summary>
+    /// Inside a collection, next/previous follow the collection's order. Everywhere else
+    /// the player falls back to the other videos in the same folder.
+    /// </summary>
+    private PlayRequest WithQueue(MediaItem media)
+        => new(media, _mode == LibraryMode.Collections && _selectedCollection is not null
+            ? GetCollectionMedia(_selectedCollection)
+            : null);
+
+    /// <summary>Right-click (or the menu key) on a video card opens the video menu.</summary>
+    private void VideoCard_ContextRequested(UIElement sender, ContextRequestedEventArgs args)
+    {
+        if (sender is Button { Tag: string filePath } button && _store?.ResolveMedia(filePath) is { } media && _menu is not null)
+            _menu.Show(button, media, args);
     }
 
     private void CreateCollection_Click(object sender, RoutedEventArgs e) => CreateCollection();

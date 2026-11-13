@@ -8,13 +8,13 @@
     <UserControl.Resources>
         <DataTemplate x:Key="RowCardTemplate">
             <Button Style="{StaticResource IrisCardButtonStyle}" Width="272"
-                    Tag="{Binding FilePath}" Click="MediaCard_Click">
+                    Tag="{Binding FilePath}" Click="MediaCard_Click" ContextRequested="Card_ContextRequested">
                 <controls:MediaCard />
             </Button>
         </DataTemplate>
         <DataTemplate x:Key="ContinueCardTemplate">
             <Button Style="{StaticResource IrisCardButtonStyle}" Width="272"
-                    Tag="{Binding FilePath}" Click="ContinueCard_Click">
+                    Tag="{Binding FilePath}" Click="ContinueCard_Click" ContextRequested="Card_ContextRequested">
                 <controls:MediaCard ShowTimeRemaining="True" />
             </Button>
         </DataTemplate>

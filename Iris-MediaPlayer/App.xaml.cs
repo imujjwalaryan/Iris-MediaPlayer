@@ -24,6 +24,9 @@ public partial class App : Application
     /// </summary>
     protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
+        // First run after moving from the MSIX build: bring the old library data across.
+        AppStorage.MigrateFromMsix();
+
         var files = GetFilesToOpen();
         _window = files.Count > 0 ? new PlayerWindow(files) : new MainWindow();
         SetWindowIcon(_window);

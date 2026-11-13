@@ -20,6 +20,23 @@
       Services/IrisJsonContext.cs shows up during development instead of after publishing.
     -->
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+
+    <!-- Shown in the .exe's properties, Task Manager and the installer. -->
+    <Product>Iris</Product>
+    <Company>Ryujin Interactive</Company>
+    <AssemblyTitle>Iris</AssemblyTitle>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <!--
+    Iris ships as a normal desktop app installed by an MSI (see Iris.Installer), not as an MSIX
+    package. It carries its own .NET and Windows App SDK runtimes, so a fresh PC needs nothing
+    else installed. Build with -p:IrisMsix=true to make the old MSIX package instead.
+  -->
+  <PropertyGroup Condition="'$(IrisMsix)' != 'true'">
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>

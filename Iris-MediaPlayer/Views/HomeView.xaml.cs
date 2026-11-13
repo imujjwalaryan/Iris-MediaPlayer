@@ -4,6 +4,7 @@ using Iris_MediaPlayer.Views.Controls;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using System;
@@ -28,6 +29,7 @@ public sealed partial class HomeView : UserControl
     private readonly DispatcherQueueTimer _heroTimer;
     private readonly List<Button> _dots = [];
     private LibraryStore? _store;
+    private VideoMenu? _menu;
     private List<Featured> _featured = [];
     private int _featuredIndex;
     private bool _frontIsA = true;
@@ -66,6 +68,8 @@ public sealed partial class HomeView : UserControl
     public void Initialize(LibraryStore store)
     {
         _store = store;
+        _menu = new VideoMenu(store, this);
+        _menu.PlayRequested += (_, request) => PlayRequested?.Invoke(this, request);
         store.LibraryChanged += () =>
         {
             _hasScanned = true;
@@ -374,6 +378,20 @@ public sealed partial class HomeView : UserControl
 
         MediaCard.PrepareToPlay(sender);
         PlayRequested?.Invoke(this, new PlayRequest(media));
+    }
+
+    /// <summary>Right-click (or the menu key) on a card opens the video menu.</summary>
+    private void Card_ContextRequested(UIElement sender, ContextRequestedEventArgs args)
+    {
+        if (sender is not Button { Tag: string filePath } button || _store is null || _menu is null)
+            return;
+
+        // Prefer the Continue watching instance so Play resumes from its saved progress.
+        var media = _store.ContinueWatching.FirstOrDefault(item =>
+                        string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
+                    ?? _store.ResolveMedia(filePath);
+        if (media is not null)
+            _menu.Show(button, media, args);
     }
 
     private void ScrollRowBack_Click(object sender, RoutedEventArgs e) => ScrollRow(sender, -1);

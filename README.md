@@ -49,12 +49,36 @@ In the library, Ctrl+K (or Ctrl+F) jumps to search and Ctrl+O opens a video file
 
 For now Iris is Windows-only. The project has x64 and ARM64 build configurations.
 
-## Run it
+## Install
+
+Download `Iris-<version>-x64.msi` from the Releases page and run it. It installs to
+`Program Files\Iris`, adds Iris to the Start menu and to "Open with" for video files, and
+can be removed from Settings › Apps like any program. Nothing else needs installing: the MSI
+includes .NET and the Windows App SDK. Your library data lives in `%LocalAppData%\Iris` and is
+kept when you uninstall.
+
+To make Iris the default player, pick it in Settings › Apps › Default apps (Windows doesn't let
+installers choose this for you).
+
+## Run it from source
 
 1. Install Visual Studio with the **WinUI application development** workload and the .NET 8 SDK.
 2. Open `Iris-MediaPlayer.slnx`.
-3. Set `Iris-MediaPlayer` as the startup project and choose `x64` or `ARM64`.
+3. Set `Iris-MediaPlayer` as the startup project, choose `x64` or `ARM64`, and the
+   **Iris-MediaPlayer (Unpackaged)** launch profile.
 4. Restore the NuGet packages and press **F5**.
+
+## Build the installer
+
+```powershell
+```
+
+The script publishes Iris in Release and packs it with [WiX Toolset 5](https://wixtoolset.org)
+(free; restored from NuGet on the first build). Raise `<Version>` in
+`Iris-MediaPlayer/Iris-MediaPlayer.csproj` for every release so the new MSI upgrades the old one.
+
+The MSI isn't code-signed, so Windows SmartScreen shows "Windows protected your PC" on first
+run; choose **More info › Run anyway**.
 
 ## Project folders
 

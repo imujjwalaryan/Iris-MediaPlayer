@@ -81,6 +81,9 @@
     <AcrylicBrush x:Key="IrisSheetBrush" TintColor="#FF0E0F13" TintOpacity="0.82"
                   TintLuminosityOpacity="0.7" FallbackColor="#F70E0F13" />
 
+    <!-- Dialogs may grow to a medium width (the Details dialog); smaller ones still fit their content. -->
+    <x:Double x:Key="ContentDialogMaxWidth">760</x:Double>
+
     <!-- ===== Layout and shape ===== -->
     <x:Double x:Key="IrisTitleBarHeight">48</x:Double>
     <x:Double x:Key="IrisRailWidth">76</x:Double>

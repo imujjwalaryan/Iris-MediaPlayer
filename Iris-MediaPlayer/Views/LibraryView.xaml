@@ -8,7 +8,8 @@
 
     <UserControl.Resources>
         <DataTemplate x:Key="VideoCardTemplate">
-            <Button Style="{StaticResource IrisCardButtonStyle}" Tag="{Binding FilePath}" Click="MediaCard_Click">
+            <Button Style="{StaticResource IrisCardButtonStyle}" Tag="{Binding FilePath}" Click="MediaCard_Click"
+                    ContextRequested="VideoCard_ContextRequested">
                 <controls:MediaCard />
             </Button>
         </DataTemplate>

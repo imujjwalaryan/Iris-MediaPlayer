@@ -194,7 +194,7 @@ public sealed class LibraryStore : IDisposable
 
     private void LoadFolderPaths()
     {
-        var saved = ApplicationData.Current.LocalSettings.Values[FolderSettingsKey] as string;
+        var saved = AppStorage.GetString(FolderSettingsKey);
         if (string.IsNullOrWhiteSpace(saved))
             return;
 
@@ -204,13 +204,13 @@ public sealed class LibraryStore : IDisposable
         }
         catch (JsonException)
         {
-            ApplicationData.Current.LocalSettings.Values.Remove(FolderSettingsKey);
+            AppStorage.SetString(FolderSettingsKey, null);
         }
     }
 
     private void SaveFolderPaths()
     {
-        ApplicationData.Current.LocalSettings.Values[FolderSettingsKey] = JsonSerializer.Serialize(_folderPaths, IrisJsonContext.Default.ListString);
+        AppStorage.SetString(FolderSettingsKey, JsonSerializer.Serialize(_folderPaths, IrisJsonContext.Default.ListString));
     }
 
     // ---------- Media lookup ----------
@@ -360,7 +360,7 @@ public sealed class LibraryStore : IDisposable
         if (_recentFilePaths.Count > MaxRecentItems)
             _recentFilePaths.RemoveRange(MaxRecentItems, _recentFilePaths.Count - MaxRecentItems);
 
-        ApplicationData.Current.LocalSettings.Values[RecentFilesSettingsKey] = JsonSerializer.Serialize(_recentFilePaths, IrisJsonContext.Default.ListString);
+        AppStorage.SetString(RecentFilesSettingsKey, JsonSerializer.Serialize(_recentFilePaths, IrisJsonContext.Default.ListString));
         RefreshRecentMedia();
     }
 
@@ -378,7 +378,7 @@ public sealed class LibraryStore : IDisposable
 
     private void LoadRecentPaths()
     {
-        var saved = ApplicationData.Current.LocalSettings.Values[RecentFilesSettingsKey] as string;
+        var saved = AppStorage.GetString(RecentFilesSettingsKey);
         if (string.IsNullOrWhiteSpace(saved))
             return;
 
@@ -388,7 +388,7 @@ public sealed class LibraryStore : IDisposable
         }
         catch (JsonException)
         {
-            ApplicationData.Current.LocalSettings.Values.Remove(RecentFilesSettingsKey);
+            AppStorage.SetString(RecentFilesSettingsKey, null);
         }
     }
 
@@ -432,6 +432,63 @@ public sealed class LibraryStore : IDisposable
 
     // ---------- Collections ----------
 
+    public bool IsInCollection(MediaCollection collection, MediaItem media)
+        => collection.FilePaths.Contains(media.FilePath, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Adds <paramref name="media"/> to the end of <paramref name="collection"/> if it isn't there yet.</summary>
+    public void AddToCollection(MediaCollection collection, MediaItem media)
+    {
+        if (IsInCollection(collection, media))
+            return;
+        collection.FilePaths.Add(media.FilePath);
+        SaveCollections();
+        CollectionsChanged?.Invoke();
+    }
+
+    public void RemoveFromCollection(MediaCollection collection, MediaItem media)
+    {
+        if (collection.FilePaths.RemoveAll(path => string.Equals(path, media.FilePath, StringComparison.OrdinalIgnoreCase)) > 0)
+        {
+            SaveCollections();
+            CollectionsChanged?.Invoke();
+        }
+    }
+
+    /// <summary>Raised when a video is added to or removed from a collection.</summary>
+    public event Action? CollectionsChanged;
+
+    // ---------- Deleting ----------
+
+    /// <summary>
+    /// Moves the video file to the Recycle Bin and forgets it everywhere: library, collections,
+    /// recently played and resume points. Throws if Windows refuses (file in use, no access).
+    /// </summary>
+    public async Task DeleteMediaAsync(MediaItem media)
+    {
+        var file = await StorageFile.GetFileFromPathAsync(media.FilePath);
+        await file.DeleteAsync(StorageDeleteOption.Default);
+
+        _allMedia.RemoveAll(item => string.Equals(item.FilePath, media.FilePath, StringComparison.OrdinalIgnoreCase));
+        _oneOffMedia.Remove(media.FilePath);
+        _backdrops.Remove(media.FilePath);
+        _progress.Remove(media.FilePath);
+
+        if (_recentFilePaths.RemoveAll(path => string.Equals(path, media.FilePath, StringComparison.OrdinalIgnoreCase)) > 0)
+            AppStorage.SetString(RecentFilesSettingsKey, JsonSerializer.Serialize(_recentFilePaths, IrisJsonContext.Default.ListString));
+
+        var inCollections = false;
+        foreach (var collection in Collections)
+            inCollections |= collection.FilePaths.RemoveAll(path => string.Equals(path, media.FilePath, StringComparison.OrdinalIgnoreCase)) > 0;
+        if (inCollections)
+        {
+            SaveCollections();
+            CollectionsChanged?.Invoke();
+        }
+
+        // Rescan so folder counts and artwork update; the folder watcher would also catch it, a moment later.
+        await RefreshAsync(showBusy: false);
+    }
+
     public void SaveCollections()
     {
         try
@@ -468,7 +525,7 @@ public sealed class LibraryStore : IDisposable
     }
 
     private static string GetCollectionsFilePath()
-        => Path.Combine(ApplicationData.Current.LocalFolder.Path, "media-collections.json");
+        => AppStorage.GetFilePath("media-collections.json");
 
     public void Dispose()
     {

@@ -67,6 +67,15 @@ internal sealed class PlaybackProgressStore
         Persist();
     }
 
+    /// <summary>Forgets a file's progress, e.g. after the file was deleted.</summary>
+    public void Remove(string filePath)
+    {
+        _entries.Clear();
+        Load();
+        if (_entries.Remove(filePath))
+            Persist();
+    }
+
     /// <summary>Close enough to the end (credits, last few seconds) to count as watched.</summary>
     public static bool IsFinished(double position, double duration)
         => position >= duration * 0.95 || duration - position < 15;
@@ -102,5 +111,5 @@ internal sealed class PlaybackProgressStore
     }
 
     private static string GetFilePath()
-        => Path.Combine(ApplicationData.Current.LocalFolder.Path, "playback-progress.json");
+        => AppStorage.GetFilePath("playback-progress.json");
 }

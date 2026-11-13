@@ -176,7 +176,13 @@ public sealed partial class PlayerView : UserControl
 
     // ---------- Public API used by the window ----------
 
-    public void Initialize(LibraryStore store) => _store = store;
+    public void Initialize(LibraryStore store)
+    {
+        _store = store;
+        _videoMenu = new VideoMenu(store, this);
+    }
+
+    private VideoMenu? _videoMenu;
 
     /// <summary>Plays <paramref name="media"/>; next/previous move through <paramref name="queue"/>.</summary>
     public void Play(MediaItem media, IReadOnlyList<MediaItem> queue)
@@ -1458,6 +1464,11 @@ public sealed partial class PlayerView : UserControl
         {
             menu.Items.Add(CreateMenuItem("Show in File Explorer", "", async () =>
                 await Windows.System.Launcher.LaunchFolderPathAsync(media.FolderPath)));
+        }
+        if (_currentMedia is { } current && _videoMenu is not null)
+        {
+            menu.Items.Add(_videoMenu.CreateCollectionMenu(current));
+            menu.Items.Add(_videoMenu.CreateDetailsItem(current));
         }
         menu.Items.Add(CreateMenuItem("Load subtitle file…", "", () => LoadSubtitle_Click(this, new RoutedEventArgs())));
         menu.Items.Add(CreateMenuItem("Playback settings", "", () => SetSheetOpen(true)));
