@@ -82,6 +82,7 @@ internal sealed class MpvPlayback : IDisposable
             Observe("speed", DoubleFormat);
             Observe("media-title", (int)MpvPropertyFormat.String);
             Observe("idle-active", FlagFormat);
+            Observe("chapter", Int64Format);
             // Seconds of video buffered ahead of the playhead; drawn as the lighter part of the seek bar.
             Observe("demuxer-cache-duration", DoubleFormat);
             // With keep-open=yes mpv pauses on the last frame instead of ending the file,
@@ -280,6 +281,27 @@ internal sealed class MpvPlayback : IDisposable
     public void SetAudioTrack(long trackId) => SetTrack("aid", trackId);
 
     public void SetSubtitleTrack(long trackId) => SetTrack("sid", trackId);
+
+    /// <summary>The file's chapters in order, or an empty list when it has none.</summary>
+    public IReadOnlyList<MpvChapter> GetChapters()
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (MpvNative.mpv_get_property(_handle, "chapter-list/count", Int64Format, out var count) < 0 || count <= 0)
+                return Array.Empty<MpvChapter>();
+
+            var chapters = new List<MpvChapter>((int)count);
+            for (var index = 0; index < count; index++)
+            {
+                var prefix = $"chapter-list/{index}/";
+                if (MpvNative.mpv_get_property_double(_handle, prefix + "time", DoubleFormat, out var time) < 0)
+                    continue;
+                chapters.Add(new MpvChapter(index, Math.Max(0, time), GetStringProperty(prefix + "title")));
+            }
+            return chapters;
+        }
+    }
 
     public IReadOnlyList<MpvTrack> GetTracks(string requestedType)
     {

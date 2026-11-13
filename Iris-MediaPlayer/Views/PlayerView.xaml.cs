@@ -81,6 +81,8 @@ public sealed partial class PlayerView : UserControl
     private long _selectedSubtitleId = -1;
     private long _lastSubtitleId = -1;
     private double _subtitleDelay;
+    private IReadOnlyList<MpvChapter> _chapters = [];
+    private int _currentChapter = -1;
     private double _audioDelay;
 
     // UI state
@@ -388,6 +390,8 @@ public sealed partial class PlayerView : UserControl
             parts.Add($"{_queueIndex + 1} of {_queue.Count}");
         if (!string.IsNullOrEmpty(_currentMedia.QualityLabel))
             parts.Add(_currentMedia.QualityLabel);
+        if (_currentChapter >= 0 && _currentChapter < _chapters.Count)
+            parts.Add(_chapters[_currentChapter].DisplayName);
         PlayerDetails.Text = string.Join("  ·  ", parts);
     }
 
@@ -524,6 +528,12 @@ public sealed partial class PlayerView : UserControl
             case "duration" when value is double duration:
                 _durationSeconds = Math.Max(0, duration);
                 UpdateTimes();
+                UpdateChapterMarks();
+                break;
+            case "chapter" when value is long chapter:
+                _currentChapter = (int)chapter;
+                UpdateDetails();
+                BuildChapterRows();
                 break;
             case "demuxer-cache-duration" when value is double buffered:
                 _bufferedSeconds = Math.Max(0, buffered);
@@ -576,6 +586,7 @@ public sealed partial class PlayerView : UserControl
         MuteButton.IsEnabled = true;
         LoadSubtitleButton.IsEnabled = true;
         RefreshTrackOptions();
+        LoadChapters();
         UpdateQueueControls();
         _posterTimer.Stop();
         _posterTimer.Start();
@@ -816,7 +827,11 @@ public sealed partial class PlayerView : UserControl
         MiniProgressFill.Width = MiniProgressTrack.ActualWidth * played;
     }
 
-    private void SeekTrack_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateSeekVisuals();
+    private void SeekTrack_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        UpdateSeekVisuals();
+        UpdateChapterMarks();
+    }
 
     private double PositionAt(PointerRoutedEventArgs e)
     {
@@ -832,6 +847,7 @@ public sealed partial class PlayerView : UserControl
         if (!CanSeek)
             return;
         SeekRail.Height = 7;
+        UpdateChapterMarks();
         Motion.Scale(SeekKnob, 1, Motion.Fast, decelerate: true);
     }
 
@@ -840,6 +856,7 @@ public sealed partial class PlayerView : UserControl
         if (_isDraggingSeek)
             return;
         SeekRail.Height = 4;
+        UpdateChapterMarks();
         Motion.Scale(SeekKnob, 0, Motion.Fast, decelerate: true);
         SeekPreviewBadge.Visibility = Visibility.Collapsed;
     }
@@ -903,9 +920,14 @@ public sealed partial class PlayerView : UserControl
     {
         var width = SeekTrack.ActualWidth;
         var x = Math.Clamp(e.GetCurrentPoint(SeekTrack).Position.X, 0, width);
-        SeekPreviewText.Text = FormatTime(width > 0 ? x / width * _durationSeconds : 0);
+        var time = width > 0 ? x / width * _durationSeconds : 0;
+        SeekPreviewText.Text = FormatTime(time);
+        var chapter = ChapterAt(time);
+        SeekPreviewChapter.Text = chapter?.DisplayName ?? string.Empty;
+        SeekPreviewChapter.Visibility = chapter is null ? Visibility.Collapsed : Visibility.Visible;
         SeekPreviewBadge.Visibility = Visibility.Visible;
         SeekPreviewBadge.UpdateLayout();
+        Canvas.SetTop(SeekPreviewBadge, -SeekPreviewBadge.ActualHeight - 12);
         var badgeWidth = SeekPreviewBadge.ActualWidth > 0 ? SeekPreviewBadge.ActualWidth : 52;
         Canvas.SetLeft(SeekPreviewBadge, Math.Clamp(x - badgeWidth / 2, 0, Math.Max(0, width - badgeWidth)));
     }
@@ -1003,8 +1025,12 @@ public sealed partial class PlayerView : UserControl
         _selectedAudioId = -1;
         _selectedSubtitleId = -1;
         _lastSubtitleId = -1;
+        _chapters = [];
+        _currentChapter = -1;
         UpdateDelayTexts();
         BuildTrackRows();
+        BuildChapterRows();
+        UpdateChapterMarks();
 
         TryMpv(mpv =>
         {
@@ -1204,7 +1230,7 @@ public sealed partial class PlayerView : UserControl
         SubtitlesIconText.Stroke = subtitleIconBrush;
     }
 
-    private Button CreateSheetRow(string text, bool isSelected, Action select)
+    private Button CreateSheetRow(string text, bool isSelected, Action select, string? trailing = null)
     {
         var content = new Grid();
         content.Children.Add(new TextBlock
@@ -1212,8 +1238,19 @@ public sealed partial class PlayerView : UserControl
             Text = text,
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(0, 0, 24, 0)
+            Margin = new Thickness(0, 0, trailing is null ? 24 : 88, 0)
         });
+        if (trailing is not null)
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = trailing,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 0, isSelected ? 24 : 0, 0),
+                Style = (Style)Application.Current.Resources["IrisCaptionTextStyle"]
+            });
+        }
         if (isSelected)
         {
             content.Children.Add(new FontIcon
@@ -1277,6 +1314,130 @@ public sealed partial class PlayerView : UserControl
         var track = _subtitleTracks.FirstOrDefault(item => item.Id == _lastSubtitleId) ?? _subtitleTracks[0];
         SelectSubtitle(track.Id);
         ShowOsd($"Subtitles: {track.DisplayName}");
+    }
+
+    // ---------- Chapters ----------
+
+    private void LoadChapters()
+    {
+        try
+        {
+            _chapters = _mpv?.GetChapters() ?? [];
+        }
+        catch (ObjectDisposedException)
+        {
+            _chapters = [];
+        }
+
+        // A single chapter is just the whole film; treat it as no chapters.
+        if (_chapters.Count == 1)
+            _chapters = [];
+        BuildChapterRows();
+        UpdateChapterMarks();
+        UpdateDetails();
+    }
+
+    /// <summary>The chapter playing at <paramref name="seconds"/>, or null when the file has none.</summary>
+    private MpvChapter? ChapterAt(double seconds)
+        => _chapters.LastOrDefault(chapter => chapter.Time <= seconds + 0.01) ?? _chapters.FirstOrDefault();
+
+    /// <summary>Lists the chapters in the settings sheet, with the current one highlighted.</summary>
+    private void BuildChapterRows()
+    {
+        ChapterRows.Children.Clear();
+        ChaptersSection.Visibility = _chapters.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var chapter in _chapters)
+        {
+            var target = chapter;
+            ChapterRows.Children.Add(CreateSheetRow(chapter.DisplayName, chapter.Index == _currentChapter,
+                () => SeekToChapter(target), FormatTime(chapter.Time)));
+        }
+    }
+
+    /// <summary>Cuts a thin gap into the seek bar at the start of each chapter.</summary>
+    private void UpdateChapterMarks()
+    {
+        ChapterMarks.Children.Clear();
+        var width = SeekTrack.ActualWidth;
+        if (_chapters.Count == 0 || _durationSeconds <= 0 || width <= 0)
+            return;
+
+        var railHeight = SeekRail.Height;
+        var top = (SeekTrack.ActualHeight - railHeight) / 2;
+        var gap = (Brush)Application.Current.Resources["IrisChapterGapBrush"];
+        foreach (var chapter in _chapters)
+        {
+            if (chapter.Time <= 0.5 || chapter.Time >= _durationSeconds - 0.5)
+                continue;
+
+            var mark = new Microsoft.UI.Xaml.Shapes.Rectangle { Width = 2, Height = railHeight, Fill = gap };
+            Canvas.SetLeft(mark, width * chapter.Time / _durationSeconds - 1);
+            Canvas.SetTop(mark, top);
+            ChapterMarks.Children.Add(mark);
+        }
+    }
+
+    private void SeekToChapter(MpvChapter chapter)
+    {
+        if (!CanSeek)
+            return;
+
+        _positionSeconds = chapter.Time;
+        UpdateTimes();
+        TryMpv(mpv => mpv.Seek(chapter.Time));
+        ShowOsd(chapter.DisplayName);
+    }
+
+    /// <summary>
+    /// Page Down goes to the next chapter. Page Up goes back to the start of the current one,
+    /// or to the previous one when pressed within a few seconds of a chapter starting.
+    /// </summary>
+    private void JumpChapter(int direction)
+    {
+        if (_chapters.Count == 0 || !CanSeek)
+            return;
+
+        var current = ChapterAt(_positionSeconds)!;
+        MpvChapter target;
+        if (direction > 0)
+        {
+            var next = _chapters.FirstOrDefault(chapter => chapter.Time > _positionSeconds + 0.5);
+            if (next is null)
+            {
+                ShowOsd("Last chapter");
+                return;
+            }
+            target = next;
+        }
+        else
+        {
+            var currentIndex = _chapters.ToList().IndexOf(current);
+            target = _positionSeconds - current.Time > 3 || currentIndex <= 0
+                ? current
+                : _chapters[currentIndex - 1];
+        }
+
+        SeekToChapter(target);
+        ShowControlsTemporarily();
+    }
+
+    // ---------- Volume with the mouse wheel ----------
+
+    /// <summary>Scrolling over the video changes the volume, 5% per notch.</summary>
+    private void Player_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        // Leave scrolling alone where it means something else: the settings sheet.
+        if (e.Handled || (_isSheetOpen && PointerHelper.IsInside(SettingsSheet, e)))
+            return;
+
+        var delta = e.GetCurrentPoint(PlayerRoot).Properties.MouseWheelDelta;
+        if (delta == 0)
+            return;
+
+        if (_isMuted && delta > 0)
+            TryMpv(mpv => mpv.SetMuted(false));
+        ChangeVolume(Math.Sign(delta) * 5 * Math.Max(1, Math.Abs(delta) / 120));
+        e.Handled = true;
     }
 
     // ---------- Top bar ----------
@@ -1438,6 +1599,12 @@ public sealed partial class PlayerView : UserControl
                 break;
             case VirtualKey.C:
                 CycleZoomMode();
+                break;
+            case VirtualKey.PageDown:
+                JumpChapter(1);
+                break;
+            case VirtualKey.PageUp:
+                JumpChapter(-1);
                 break;
             case VirtualKey.Z:
                 AdjustSubtitleDelay(-0.1);

@@ -16,6 +16,7 @@
         area below the title bar; fullscreen and the mini player hide the title bar too.
     -->
     <Grid x:Name="WindowRoot"
+          KeyboardAcceleratorPlacementMode="Hidden"
           AllowDrop="True"
           DragEnter="App_DragEnter"
           DragOver="App_DragOver"

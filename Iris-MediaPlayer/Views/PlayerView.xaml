@@ -42,7 +42,8 @@
     <Grid x:Name="PlayerRoot" Background="Black"
           PointerMoved="Player_PointerMoved"
           PointerEntered="Player_PointerEntered"
-          PointerExited="Player_PointerExited">
+          PointerExited="Player_PointerExited"
+          PointerWheelChanged="Player_PointerWheelChanged">
 
         <!-- Video surface: click to pause, double-click for fullscreen. In the mini player, drag to move. -->
         <Grid x:Name="VideoHost" Background="Transparent" SizeChanged="VideoHost_SizeChanged"
@@ -68,8 +69,7 @@
             <Border VerticalAlignment="Bottom" Height="260">
                 <Border.Background>
                     <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
-                        <GradientStop Color="#D9000000" Offset="0" />
-                        <GradientStop Color="#80000000" Offset="0.45" />
+                        <GradientStop Color="#99000000" Offset="0" />
                         <GradientStop Color="#00000000" Offset="1" />
                     </LinearGradientBrush>
                 </Border.Background>
@@ -192,7 +192,8 @@
 
         <!-- Floating controls -->
         <Border x:Name="PlayerControlsBar" VerticalAlignment="Bottom" Margin="24,0,24,24"
-                Padding="18,12" Background="Transparent"
+                Padding="18,12" CornerRadius="22" Background="{StaticResource IrisControlsGlassBrush}"
+                BorderBrush="#1AFFFFFF" BorderThickness="1"
                 SizeChanged="PlayerControlsBar_SizeChanged"
                 PointerEntered="Bars_PointerEntered" PointerExited="Bars_PointerExited">
             <StackPanel Spacing="6">
@@ -217,6 +218,8 @@
                             <Border x:Name="SeekPlayed" HorizontalAlignment="Left" Width="0" CornerRadius="2"
                                     Background="{StaticResource IrisAccentBrush}" />
                         </Grid>
+                        <!-- Chapter boundaries: thin gaps cut into the rail -->
+                        <Canvas x:Name="ChapterMarks" IsHitTestVisible="False" />
                         <Canvas IsHitTestVisible="False">
                             <Grid x:Name="SeekKnob" Width="22" Height="22" Canvas.Top="-2">
                                 <Ellipse Fill="#598B93FF" />
@@ -224,8 +227,13 @@
                             </Grid>
                             <Border x:Name="SeekPreviewBadge" Canvas.Top="-38" Visibility="Collapsed" Padding="8,4"
                                     CornerRadius="6" Background="#BF000000">
-                                <TextBlock x:Name="SeekPreviewText" Text="0:00" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="White" />
+                                <StackPanel Spacing="1">
+                                    <TextBlock x:Name="SeekPreviewChapter" FontSize="12" Foreground="{StaticResource IrisTextMutedBrush}"
+                                               HorizontalAlignment="Center" MaxWidth="240" TextTrimming="CharacterEllipsis"
+                                               Visibility="Collapsed" />
+                                    <TextBlock x:Name="SeekPreviewText" Text="0:00" FontSize="12" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center" Foreground="White" />
+                                </StackPanel>
                             </Border>
                         </Canvas>
                     </Grid>
@@ -361,6 +369,13 @@
                         <StackPanel Spacing="8">
                             <TextBlock Text="SPEED" Style="{StaticResource IrisLabelTextStyle}" />
                             <controls:Segmented x:Name="SpeedSegments" IsPill="False" SelectionChanged="SpeedSegments_SelectionChanged" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="ChaptersSection" Spacing="4" Visibility="Collapsed">
+                            <TextBlock Text="CHAPTERS" Style="{StaticResource IrisLabelTextStyle}" Margin="0,0,0,4" />
+                            <StackPanel x:Name="ChapterRows" Spacing="2" />
+                            <TextBlock Text="Page Up / Page Down to jump" Style="{StaticResource IrisCaptionTextStyle}"
+                                       Foreground="{StaticResource IrisTextSecondaryBrush}" Margin="12,4,0,0" />
                         </StackPanel>
 
                         <StackPanel Spacing="4">

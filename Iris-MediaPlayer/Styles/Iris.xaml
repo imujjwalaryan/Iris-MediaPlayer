@@ -66,12 +66,18 @@
     <SolidColorBrush x:Key="IrisLightBrush" Color="#FFF4F4F6" />
     <SolidColorBrush x:Key="IrisBadgeBrush" Color="#B8000000" />
     <SolidColorBrush x:Key="IrisTrackBrush" Color="#2EFFFFFF" />
+    <SolidColorBrush x:Key="IrisChapterGapBrush" Color="#B3000000" />
     <SolidColorBrush x:Key="IrisPlayerIconBrush" Color="#FFE4E4E9" />
     <SolidColorBrush x:Key="IrisCardHoverBrush" Color="#0BFFFFFF" />
 
     <!-- Acrylic for floating chrome over video and artwork: search, player bars, sheets. -->
     <AcrylicBrush x:Key="IrisGlassBrush" TintColor="#FF121318" TintOpacity="0.62"
                   TintLuminosityOpacity="0.55" FallbackColor="#F0121318" />
+    <!--
+        Player controls: a see-through dark panel. Acrylic can't blur the video because mpv draws it
+        on its own swap chain, which the XAML backdrop never sees, so it would only blur black.
+    -->
+    <SolidColorBrush x:Key="IrisControlsGlassBrush" Color="#8C0E0F13" />
     <AcrylicBrush x:Key="IrisSheetBrush" TintColor="#FF0E0F13" TintOpacity="0.82"
                   TintLuminosityOpacity="0.7" FallbackColor="#F70E0F13" />
 

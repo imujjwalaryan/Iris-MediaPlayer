@@ -34,6 +34,8 @@ Jellyfin isn’t hooked up yet.
 | I | Mini player |
 | Esc | Close the settings sheet, leave the mini player or fullscreen, then leave the player |
 | Shift+N / Shift+P | Next or previous video |
+| Page Down / Page Up | Next or previous chapter |
+| Mouse wheel | Volume up or down |
 | C | Cycle zoom: Fit, Fill screen, Stretch |
 | Z / X | Subtitle delay −0.1 s / +0.1 s |
 

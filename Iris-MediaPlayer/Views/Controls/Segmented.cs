@@ -80,11 +80,12 @@ public sealed partial class Segmented : UserControl
         if (_isPill)
         {
             _track.Padding = new Thickness(4);
-            _track.CornerRadius = new CornerRadius(999);
+            // Exactly half the height: a huge radius like 999 bends the shape into an oval.
+            _track.CornerRadius = new CornerRadius((SegmentHeight + 10) / 2);
             _track.Background = (Brush)Application.Current.Resources["IrisFieldBrush"];
             _track.BorderBrush = (Brush)Application.Current.Resources["IrisStrokeSubtleBrush"];
             _track.BorderThickness = new Thickness(1);
-            _pill.CornerRadius = new CornerRadius(999);
+            _pill.CornerRadius = new CornerRadius(SegmentHeight / 2);
         }
         else
         {
