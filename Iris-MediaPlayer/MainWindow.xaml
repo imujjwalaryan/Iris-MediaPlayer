@@ -164,6 +164,33 @@
                     </Button>
                 </Grid>
 
+                <!-- Shown once a new version has downloaded; the player covers it while a video plays. -->
+                <Border x:Name="UpdateCard" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                        Margin="0,0,32,32" Padding="16,14,14,14" CornerRadius="18" MaxWidth="520"
+                        Background="{StaticResource IrisSurfaceBrush}"
+                        BorderBrush="{StaticResource IrisStrokeStrongBrush}" BorderThickness="1">
+                    <Grid ColumnSpacing="14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="40" Height="40" CornerRadius="12" VerticalAlignment="Center"
+                                Background="{StaticResource IrisAccentSoftBrush}">
+                            <FontIcon Glyph="&#xE896;" FontSize="17" Foreground="{StaticResource IrisAccentLightBrush}" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock x:Name="UpdateTitle" Text="Update ready" FontSize="14" FontWeight="SemiBold" />
+                            <TextBlock Text="Restart now, or it installs the next time you open Iris." TextWrapping="Wrap"
+                                       Style="{StaticResource IrisCaptionTextStyle}" Foreground="{StaticResource IrisTextSecondaryBrush}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Button Content="Later" Style="{StaticResource IrisCtaQuietButtonStyle}" Click="UpdateLater_Click" />
+                            <Button Content="Restart" Style="{StaticResource IrisCtaPrimaryButtonStyle}" Click="UpdateRestart_Click" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
                 <views:PlayerView x:Name="PlayerPage" Visibility="Collapsed" />
 
                 <Border x:Name="DropOverlay" Visibility="Collapsed" Margin="24" CornerRadius="22"

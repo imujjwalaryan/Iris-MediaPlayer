@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
     private UIElement _sectionBeforePlayer;
     private Button? _railBeforePlayer;
     private bool _isPlayerFullscreen;
+    private readonly AppUpdater _updater = new();
 
     public MainWindow()
     {
@@ -66,6 +67,7 @@ public sealed partial class MainWindow : Window
         {
             SelectRail(HomeRailButton, animate: false);
             await _store.RefreshAsync();
+            _ = CheckForUpdateAsync();
         };
         // Settings sits at the bottom of the rail, so its plate position changes with the window height.
         Rail.SizeChanged += (_, _) =>
@@ -447,6 +449,29 @@ public sealed partial class MainWindow : Window
         visual.Clip = visual.Compositor.CreateRectangleClip(
             0, 0, (float)ContentRoot.ActualWidth, (float)ContentRoot.ActualHeight,
             radius, Vector2.Zero, Vector2.Zero, Vector2.Zero);
+    }
+
+    // ---------- Updates ----------
+
+    /// <summary>Looks for a new release shortly after startup and offers it once it has downloaded.</summary>
+    private async System.Threading.Tasks.Task CheckForUpdateAsync()
+    {
+        await System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(5));
+        if (!await _updater.DownloadUpdateAsync())
+            return;
+
+        UpdateTitle.Text = $"Iris {_updater.ReadyVersion} is ready";
+        UpdateCard.Visibility = Visibility.Visible;
+        Motion.EnterFromBelow(UpdateCard, TimeSpan.Zero, 16);
+    }
+
+    private void UpdateLater_Click(object sender, RoutedEventArgs e) => UpdateCard.Visibility = Visibility.Collapsed;
+
+    private void UpdateRestart_Click(object sender, RoutedEventArgs e)
+    {
+        // Save the resume point of anything playing before Iris closes.
+        PlayerPage.Stop();
+        _updater.RestartToUpdate();
     }
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)

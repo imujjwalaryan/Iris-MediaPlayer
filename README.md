@@ -51,14 +51,17 @@ For now Iris is Windows-only. The project has x64 and ARM64 build configurations
 
 ## Install
 
-Download `Iris-<version>-x64.msi` from the Releases page and run it. It installs to
-`Program Files\Iris`, adds Iris to the Start menu and to "Open with" for video files, and
-can be removed from Settings › Apps like any program. Nothing else needs installing: the MSI
-includes .NET and the Windows App SDK. Your library data lives in `%LocalAppData%\Iris` and is
-kept when you uninstall.
+Download `IrisMediaPlayer-win-Setup.exe` from the Releases page and run it. It installs Iris for
+your account in a few seconds (no admin prompt, no wizard), adds it to the Start menu, the desktop
+and "Open with" for video files, and starts it. Nothing else needs installing: .NET and the Windows
+App SDK are included.
 
-To make Iris the default player, pick it in Settings › Apps › Default apps (Windows doesn't let
-installers choose this for you).
+Iris keeps itself up to date: when a new release is out, it downloads it in the background and
+offers **Restart** (or installs it the next time you open Iris).
+
+Remove it from Settings › Apps like any program. Your library data lives in `%LocalAppData%\Iris`
+and is kept when you uninstall. To make Iris the default player, pick it in Settings › Apps ›
+Default apps (Windows doesn't let installers choose this for you).
 
 ## Run it from source
 
@@ -70,17 +73,23 @@ installers choose this for you).
 
 ## Build the installer
 
+Iris is packaged with [Velopack](https://velopack.io) (free and open source). Double-click
+
 ```powershell
 ```
 
-also works where Windows PowerShell is set to allow only signed scripts.
+The script publishes Iris in Release and packs it with the `vpk` tool (restored from
+that run only, so it also works where Windows PowerShell only allows signed scripts.
 
-The script publishes Iris in Release and packs it with [WiX Toolset 5](https://wixtoolset.org)
-(free; restored from NuGet on the first build). Raise `<Version>` in
-`Iris-MediaPlayer/Iris-MediaPlayer.csproj` for every release so the new MSI upgrades the old one.
+To release a new version:
 
-The MSI isn't code-signed, so Windows SmartScreen shows "Windows protected your PC" on first
-run; choose **More info › Run anyway**.
+1. Raise `<Version>` in `Iris-MediaPlayer/Iris-MediaPlayer.csproj`.
+   token in `GITHUB_TOKEN`), or upload everything in `artifacts\releases` to a new GitHub Release.
+
+Installed copies find the release on their next start and offer to update.
+
+The setup isn't code-signed, so Windows SmartScreen shows "Windows protected your PC" the first
+time; choose **More info › Run anyway**.
 
 ## Project folders
 

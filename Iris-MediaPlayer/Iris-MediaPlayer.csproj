@@ -21,6 +21,9 @@
     -->
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
 
+    <!-- Program.cs is the entry point, so Velopack's install hooks run before WinUI starts. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+
     <!-- Shown in the .exe's properties, Task Manager and the installer. -->
     <Product>Iris</Product>
     <Company>Ryujin Interactive</Company>
@@ -67,6 +70,7 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
     <PackageReference Include="Endpne.LibMPV.Windows" Version="0.41.0" />
+    <PackageReference Include="Velopack" Version="1.2.161" />
   </ItemGroup>
 
   <ItemGroup>
