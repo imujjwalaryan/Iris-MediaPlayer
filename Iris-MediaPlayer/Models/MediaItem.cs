@@ -86,6 +86,13 @@ public sealed record MediaItem(
         private set => SetProperty(ref _watchRemaining, value);
     }
 
+    /// <summary>Back to unwatched: no progress bar, no time left.</summary>
+    public void ClearWatchProgress()
+    {
+        WatchProgress = 0;
+        WatchRemaining = string.Empty;
+    }
+
     public void SetWatchProgress(double positionSeconds, double durationSeconds)
     {
         if (durationSeconds <= 0)

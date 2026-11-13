@@ -38,19 +38,22 @@ public sealed class VideoMenu
     public MediaCollection? CurrentCollection { get; set; }
 
     /// <summary>Opens the menu for <paramref name="media"/> at the pointer (right-click) or under the element (keyboard).</summary>
-    public void Show(FrameworkElement target, MediaItem media, ContextRequestedEventArgs args)
+    /// <param name="extra">Items for this place only, shown under Play (e.g. "Remove from Continue watching").</param>
+    public void Show(FrameworkElement target, MediaItem media, ContextRequestedEventArgs args, params MenuFlyoutItemBase[] extra)
     {
         var options = new FlyoutShowOptions();
         if (args.TryGetPosition(target, out var point))
             options.Position = point;
-        Build(media).ShowAt(target, options);
+        Build(media, extra).ShowAt(target, options);
         args.Handled = true;
     }
 
-    public MenuFlyout Build(MediaItem media)
+    public MenuFlyout Build(MediaItem media, params MenuFlyoutItemBase[] extra)
     {
         var menu = new MenuFlyout();
         menu.Items.Add(Item("Play", "", () => PlayRequested?.Invoke(this, new PlayRequest(media))));
+        foreach (var item in extra)
+            menu.Items.Add(item);
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(CreateCollectionMenu(media));
         if (CurrentCollection is { } collection && _store.IsInCollection(collection, media))

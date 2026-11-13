@@ -404,6 +404,34 @@ public sealed class LibraryStore : IDisposable
         RefreshContinueWatching();
     }
 
+    /// <summary>
+    /// Takes a video out of Continue watching by forgetting where it was stopped. The file and
+    /// everything else about it stay; it plays from the start next time.
+    /// </summary>
+    public void RemoveFromContinueWatching(MediaItem media)
+    {
+        _progress.Remove(media.FilePath);
+        foreach (var item in AllMediaWithPath(media.FilePath))
+            item.ClearWatchProgress();
+        RefreshContinueWatching();
+    }
+
+    /// <summary>Empties Continue watching (the "Clear history" button). Recently played is left alone.</summary>
+    public void ClearContinueWatching()
+    {
+        foreach (var (filePath, _) in _progress.MostRecent().ToList())
+        {
+            _progress.Remove(filePath);
+            foreach (var item in AllMediaWithPath(filePath))
+                item.ClearWatchProgress();
+        }
+        RefreshContinueWatching();
+    }
+
+    private IEnumerable<MediaItem> AllMediaWithPath(string filePath)
+        => _allMedia.Concat(_oneOffMedia.Values)
+            .Where(item => string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+
     private void RefreshContinueWatching()
     {
         var items = new List<MediaItem>();

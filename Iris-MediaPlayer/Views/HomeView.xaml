@@ -14,7 +14,7 @@
         </DataTemplate>
         <DataTemplate x:Key="ContinueCardTemplate">
             <Button Style="{StaticResource IrisCardButtonStyle}" Width="272"
-                    Tag="{Binding FilePath}" Click="ContinueCard_Click" ContextRequested="Card_ContextRequested">
+                    Tag="{Binding FilePath}" Click="ContinueCard_Click" ContextRequested="ContinueCard_ContextRequested">
                 <controls:MediaCard ShowTimeRemaining="True" />
             </Button>
         </DataTemplate>
@@ -108,6 +108,14 @@
                     <Grid Margin="56,0,40,0">
                         <TextBlock Text="Continue watching" Style="{StaticResource IrisSectionTitleTextStyle}" VerticalAlignment="Center" />
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                            <Button Style="{StaticResource IrisOutlineButtonStyle}" Height="36" Padding="14,0" FontSize="13"
+                                    FontWeight="Medium" Click="ClearContinueWatching_Click"
+                                    ToolTipService.ToolTip="Remove every video from Continue watching">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE81C;" FontSize="13" />
+                                    <TextBlock Text="Clear history" />
+                                </StackPanel>
+                            </Button>
                             <Button Style="{StaticResource IrisOutlineIconButtonStyle}" Tag="ContinueScroller" Click="ScrollRowBack_Click"
                                     ToolTipService.ToolTip="Scroll left" AutomationProperties.Name="Scroll left">
                                 <FontIcon Glyph="&#xE76B;" FontSize="12" />

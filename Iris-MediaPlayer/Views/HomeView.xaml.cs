@@ -394,6 +394,48 @@ public sealed partial class HomeView : UserControl
             _menu.Show(button, media, args);
     }
 
+    /// <summary>The Continue watching menu adds "Remove from Continue watching" to the usual video menu.</summary>
+    private void ContinueCard_ContextRequested(UIElement sender, ContextRequestedEventArgs args)
+    {
+        if (sender is not Button { Tag: string filePath } button || _store is null || _menu is null)
+            return;
+
+        var media = _store.ContinueWatching.FirstOrDefault(item =>
+                        string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
+                    ?? _store.ResolveMedia(filePath);
+        if (media is null)
+            return;
+
+        var remove = new MenuFlyoutItem { Text = "Remove from Continue watching", Icon = new FontIcon { Glyph = "\uE738" } };
+        remove.Click += (_, _) => _store.RemoveFromContinueWatching(media);
+        _menu.Show(button, media, args, remove);
+    }
+
+    /// <summary>Clears the whole Continue watching row after asking. Videos aren't deleted.</summary>
+    private async void ClearContinueWatching_Click(object sender, RoutedEventArgs e)
+    {
+        if (_store is null)
+            return;
+
+        var dialog = new ContentDialog
+        {
+            Title = "Clear Continue watching?",
+            Content = new TextBlock
+            {
+                Text = "Every video leaves this row and starts from the beginning next time. Nothing is deleted.",
+                TextWrapping = TextWrapping.Wrap
+            },
+            PrimaryButtonText = "Clear",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+            Style = (Style)Application.Current.Resources["DefaultContentDialogStyle"],
+            RequestedTheme = ElementTheme.Dark
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+            _store.ClearContinueWatching();
+    }
+
     private void ScrollRowBack_Click(object sender, RoutedEventArgs e) => ScrollRow(sender, -1);
 
     private void ScrollRowForward_Click(object sender, RoutedEventArgs e) => ScrollRow(sender, 1);
