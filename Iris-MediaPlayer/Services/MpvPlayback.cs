@@ -82,6 +82,8 @@ internal sealed class MpvPlayback : IDisposable
             Observe("speed", DoubleFormat);
             Observe("media-title", (int)MpvPropertyFormat.String);
             Observe("idle-active", FlagFormat);
+            // Seconds of video buffered ahead of the playhead; drawn as the lighter part of the seek bar.
+            Observe("demuxer-cache-duration", DoubleFormat);
             // With keep-open=yes mpv pauses on the last frame instead of ending the file,
             // so end of playback is reported through this property.
             Observe("eof-reached", FlagFormat);
@@ -101,7 +103,11 @@ internal sealed class MpvPlayback : IDisposable
         }
     }
 
-    /// <summary>Opens a file, optionally starting at <paramref name="startSeconds"/> (used for resume).</summary>
+    /// <summary>
+    /// Opens a file and plays it, optionally starting at <paramref name="startSeconds"/> (used for resume).
+    /// With keep-open, mpv pauses on the last frame of a finished video and stays paused for the next
+    /// file, so playback is unpaused here explicitly.
+    /// </summary>
     public void LoadFile(string filePath, double startSeconds = 0)
     {
         var start = startSeconds > 0 ? startSeconds.ToString("0.###", CultureInfo.InvariantCulture) : "0";
@@ -110,6 +116,7 @@ internal sealed class MpvPlayback : IDisposable
             ThrowIfDisposed();
             ThrowIfError(MpvNative.mpv_set_property_string(_handle, "start", start), "set start position");
         }
+        SetPaused(false);
         RunCommand("loadfile", filePath, "replace");
     }
 
@@ -138,6 +145,12 @@ internal sealed class MpvPlayback : IDisposable
     public void SetSubtitleDelay(double seconds) => SetDouble("sub-delay", seconds, "set subtitle delay");
 
     public void SetAudioDelay(double seconds) => SetDouble("audio-delay", seconds, "set audio delay");
+
+    /// <summary>
+    /// Where subtitles sit, as a percentage of the window height (100 = bottom). Used to lift them
+    /// above the player controls while those are showing.
+    /// </summary>
+    public void SetSubtitlePosition(double percent) => SetDouble("sub-pos", Math.Round(Math.Clamp(percent, 0, 100)), "set subtitle position");
 
     /// <summary>Overrides the video aspect ratio, for example "16:9". Pass "-1" to use the file's own ratio.</summary>
     public void SetAspectOverride(string aspect)
@@ -202,6 +215,22 @@ internal sealed class MpvPlayback : IDisposable
         {
             ThrowIfDisposed();
             ThrowIfError(MpvNative.mpv_set_property_double(_handle, property, DoubleFormat, ref value), action);
+        }
+    }
+
+    /// <summary>
+    /// mpv's current pause state. Property events only arrive when it changes, so a new file that
+    /// keeps playing never reports it; read it directly instead.
+    /// </summary>
+    public bool IsPaused
+    {
+        get
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                return MpvNative.mpv_get_property_flag(_handle, "pause", FlagFormat, out var paused) >= 0 && paused != 0;
+            }
         }
     }
 
@@ -280,12 +309,16 @@ internal sealed class MpvPlayback : IDisposable
         }
     }
 
+    /// <summary>Selects a track by id; a negative id turns the track type off ("no").</summary>
     private void SetTrack(string property, long trackId)
     {
         lock (_gate)
         {
             ThrowIfDisposed();
-            ThrowIfError(MpvNative.mpv_set_property(_handle, property, Int64Format, ref trackId), $"select {property} track");
+            if (trackId < 0)
+                ThrowIfError(MpvNative.mpv_set_property_string(_handle, property, "no"), $"turn off {property}");
+            else
+                ThrowIfError(MpvNative.mpv_set_property(_handle, property, Int64Format, ref trackId), $"select {property} track");
         }
     }
 

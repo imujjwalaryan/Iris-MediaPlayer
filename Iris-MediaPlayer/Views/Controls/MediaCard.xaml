@@ -3,31 +3,42 @@
     x:Class="Iris_MediaPlayer.Views.Controls.MediaCard"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    SizeChanged="Card_SizeChanged">
+    SizeChanged="Card_SizeChanged"
+    PointerEntered="Card_PointerEntered"
+    PointerExited="Card_PointerExited"
+    PointerCanceled="Card_PointerExited">
 
     <!-- The one video card used everywhere. DataContext is a MediaItem. -->
     <StackPanel Spacing="10">
         <Grid x:Name="ThumbnailFrame" Height="135"
               CornerRadius="{StaticResource IrisThumbnailCornerRadius}"
               Background="{StaticResource IrisThumbnailBrush}">
-            <FontIcon Glyph="&#xE714;" FontSize="28" Opacity="0.25" />
+            <FontIcon Glyph="&#xE714;" FontSize="28" Opacity="0.2" />
             <Image x:Name="ThumbnailImage" Stretch="UniformToFill" />
 
-            <Border x:Name="QualityBadge" Visibility="Collapsed"
-                    HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8"
-                    Padding="6,2" CornerRadius="4" Background="{StaticResource IrisBadgeBrush}">
+            <Border x:Name="QualityBadge" Style="{StaticResource IrisBadgeStyle}" Visibility="Collapsed"
+                    HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8">
                 <TextBlock x:Name="QualityText" FontSize="11" FontWeight="SemiBold" />
             </Border>
-            <Border x:Name="DurationBadge" Visibility="Collapsed"
-                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="8"
-                    Padding="6,2" CornerRadius="4" Background="{StaticResource IrisBadgeBrush}">
+            <Border x:Name="DurationBadge" Style="{StaticResource IrisBadgeStyle}" Visibility="Collapsed"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="8">
                 <TextBlock x:Name="DurationText" FontSize="11" FontWeight="SemiBold" />
             </Border>
-            <ProgressBar x:Name="WatchBar" Visibility="Collapsed" VerticalAlignment="Bottom"
-                         Maximum="1" MinHeight="4" CornerRadius="0" />
+
+            <!-- Revealed on hover: a light play button over a slight dim -->
+            <Grid x:Name="PlayHint" Background="#2E000000" IsHitTestVisible="False">
+                <Border x:Name="PlayHintButton" Width="48" Height="48" CornerRadius="24" Background="#EBF4F4F6">
+                    <FontIcon Glyph="&#xF5B0;" FontSize="16" Margin="2,0,0,0" Foreground="{StaticResource IrisOnLightBrush}" />
+                </Border>
+            </Grid>
+
+            <Grid x:Name="WatchBar" Visibility="Collapsed" VerticalAlignment="Bottom" Height="4"
+                  Background="{StaticResource IrisTrackBrush}">
+                <Border x:Name="WatchFill" HorizontalAlignment="Left" Background="{StaticResource IrisAccentBrush}" />
+            </Grid>
         </Grid>
-        <StackPanel Spacing="2" Padding="2,0,2,2">
-            <TextBlock x:Name="TitleText" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxLines="1" />
+        <StackPanel Spacing="3" Padding="4,0,4,2">
+            <TextBlock x:Name="TitleText" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxLines="1" />
             <TextBlock x:Name="DetailText" Style="{StaticResource IrisCaptionTextStyle}"
                        TextTrimming="CharacterEllipsis" MaxLines="1" />
         </StackPanel>

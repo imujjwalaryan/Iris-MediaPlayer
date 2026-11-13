@@ -10,135 +10,176 @@
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
-    <NavigationView x:Name="AppNavigation"
-                    IsBackButtonVisible="Collapsed"
-                    IsSettingsVisible="True"
-                    IsPaneToggleButtonVisible="False"
-                    IsPaneOpen="False"
-                    CompactPaneLength="68"
-                    OpenPaneLength="68"
-                    PaneDisplayMode="LeftCompact"
-                    SelectionChanged="AppNavigation_SelectionChanged"
-                    Loaded="AppNavigation_Loaded"
-                    Background="Transparent"
-                    AllowDrop="True"
-                    DragEnter="App_DragEnter"
-                    DragOver="App_DragOver"
-                    DragLeave="App_DragLeave"
-                    Drop="App_Drop">
-        <NavigationView.Resources>
-            <!-- pane (the left rail) -->
-            <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="Transparent" />
-            <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="Transparent" />
-            <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="Transparent" />
+    <!--
+        Shell: title bar across the top, the navigation rail on the left (Mica shows through both),
+        and the content surface with its rounded top-left corner. The player takes over the whole
+        area below the title bar; fullscreen and the mini player hide the title bar too.
+    -->
+    <Grid x:Name="WindowRoot"
+          AllowDrop="True"
+          DragEnter="App_DragEnter"
+          DragOver="App_DragOver"
+          DragLeave="App_DragLeave"
+          Drop="App_Drop">
+        <Grid.RowDefinitions>
+            <RowDefinition x:Name="TitleBarRow" Height="48" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="RailColumn" Width="76" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="K" Modifiers="Control" Invoked="SearchAccelerator_Invoked" />
+            <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="SearchAccelerator_Invoked" />
+            <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="OpenAccelerator_Invoked" />
+        </Grid.KeyboardAccelerators>
 
-            <!-- content area: no fill, no border, no built-in corner -->
-            <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
-            <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="Transparent" />
-            <Thickness x:Key="NavigationViewContentGridBorderThickness">0</Thickness>
-            <CornerRadius x:Key="NavigationViewContentGridCornerRadius">0</CornerRadius>
-            <Thickness x:Key="NavigationViewContentMargin">0</Thickness>
-        </NavigationView.Resources>
-        <NavigationView.MenuItems>
-            <NavigationViewItem Content="Home" Tag="Home">
-                <NavigationViewItem.Icon>
-                    <SymbolIcon Symbol="Home" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Videos" Tag="LibraryVideos">
-                <NavigationViewItem.Icon>
-                    <SymbolIcon Symbol="Video" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Folders" Tag="LibraryFolders">
-                <NavigationViewItem.Icon>
-                    <SymbolIcon Symbol="Folder" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Collections" Tag="LibraryCollections">
-                <NavigationViewItem.Icon>
-                    <SymbolIcon Symbol="Library" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem Content="Jellyfin" Tag="Jellyfin">
-                <NavigationViewItem.Icon>
-                    <SymbolIcon Symbol="Globe" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-        </NavigationView.MenuItems>
+        <!-- Title bar (draggable; the caption buttons are drawn by Windows on the right) -->
+        <Grid x:Name="AppTitleBar" Grid.ColumnSpan="2" Padding="18,0,0,0" Background="Transparent">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Viewbox Width="18" Height="18" VerticalAlignment="Center">
+                    <Canvas Width="24" Height="24">
+                        <Path Data="M2,12 C5,7 9,5 12,5 C15,5 19,7 22,12 C19,17 15,19 12,19 C9,19 5,17 2,12 Z"
+                              Stroke="{StaticResource IrisAccentLightBrush}" StrokeThickness="1.8" />
+                        <Ellipse Canvas.Left="8.8" Canvas.Top="8.8" Width="6.4" Height="6.4"
+                                 Fill="{StaticResource IrisAccentLightBrush}" />
+                    </Canvas>
+                </Viewbox>
+                <TextBlock x:Name="TitleBarText" Text="Iris" FontSize="12" VerticalAlignment="Center"
+                           Foreground="{StaticResource IrisTextSecondaryBrush}" />
+            </StackPanel>
+        </Grid>
 
-        <Border x:Name="RoundedContentSurface"
-                Margin="0,0,8,8"
-                CornerRadius="16"
+        <!-- Navigation rail. One plate slides behind the selected item (the "Selection slide"). -->
+        <Grid x:Name="Rail" Grid.Row="1" Padding="0,12,0,16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Border x:Name="RailSelection" Grid.RowSpan="3" Width="48" Height="48" CornerRadius="12"
+                    VerticalAlignment="Top" HorizontalAlignment="Center" IsHitTestVisible="False"
+                    Background="{StaticResource IrisAccentSoftBrush}" />
+            <Border x:Name="RailIndicator" Grid.RowSpan="3" Width="3" Height="20" CornerRadius="1.5"
+                    VerticalAlignment="Top" HorizontalAlignment="Left" Margin="2,14,0,0" IsHitTestVisible="False"
+                    Background="{StaticResource IrisAccentBrush}" />
+
+            <StackPanel Spacing="6">
+                <Button x:Name="HomeRailButton" Style="{StaticResource IrisRailButtonStyle}" Click="RailButton_Click"
+                        Tag="Home" ToolTipService.ToolTip="Home" AutomationProperties.Name="Home">
+                    <FontIcon Glyph="&#xE80F;" FontSize="20" />
+                </Button>
+                <Button x:Name="LibraryRailButton" Style="{StaticResource IrisRailButtonStyle}" Click="RailButton_Click"
+                        Tag="Library" ToolTipService.ToolTip="Library" AutomationProperties.Name="Library">
+                    <FontIcon Glyph="&#xE8B2;" FontSize="20" />
+                </Button>
+                <Button x:Name="JellyfinRailButton" Style="{StaticResource IrisRailButtonStyle}" Click="RailButton_Click"
+                        Tag="Jellyfin" ToolTipService.ToolTip="Jellyfin" AutomationProperties.Name="Jellyfin">
+                    <FontIcon Glyph="&#xE774;" FontSize="20" />
+                </Button>
+            </StackPanel>
+            <Button x:Name="SettingsRailButton" Grid.Row="2" Style="{StaticResource IrisRailButtonStyle}" Click="RailButton_Click"
+                    Tag="Settings" ToolTipService.ToolTip="Settings" AutomationProperties.Name="Settings">
+                <FontIcon Glyph="&#xE713;" FontSize="20" />
+            </Button>
+        </Grid>
+
+        <!-- Content surface -->
+        <Border x:Name="ContentSurface" Grid.Row="1" Grid.Column="1"
+                CornerRadius="16,0,0,0"
                 Background="{StaticResource IrisBackgroundBrush}"
-                BorderBrush="{StaticResource IrisStrokeBrush}"
-                BorderThickness="1">
+                BorderBrush="{StaticResource IrisStrokeSubtleBrush}"
+                BorderThickness="1,1,0,0">
             <Grid x:Name="ContentRoot" SizeChanged="ContentRoot_SizeChanged">
                 <!-- One section is visible at a time; see MainWindow.ShowSection. -->
                 <views:HomeView x:Name="HomePage" />
                 <views:LibraryView x:Name="LibraryPage" Visibility="Collapsed" />
                 <views:PlaceholderView x:Name="PlaceholderPage" Visibility="Collapsed" />
 
-                <!--
-                    App-wide top bar: the only search box and the only "Open video" button.
-                    It floats over the pages (which leave room for it) so Home's artwork can run behind it.
-                -->
-                <Grid x:Name="TopBar" VerticalAlignment="Top" Height="{StaticResource IrisTopBarHeight}"
-                      Padding="32,16,24,0" ColumnSpacing="12">
-                    <Grid.Background>
-                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="#E60F1115" Offset="0" />
-                            <GradientStop Color="#990F1115" Offset="0.6" />
-                            <GradientStop Color="#000F1115" Offset="1" />
-                        </LinearGradientBrush>
-                    </Grid.Background>
+                <!-- Floating search and Open file, over Home's artwork. -->
+                <Grid x:Name="TopBar" VerticalAlignment="Top" Padding="40,20,32,0" ColumnSpacing="16">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <AutoSuggestBox x:Name="SearchBox" Grid.Column="1" Width="460" VerticalAlignment="Top"
-                                    PlaceholderText="Search videos and folders" QueryIcon="Find"
-                                    TextMemberPath="Title"
-                                    TextChanged="SearchBox_TextChanged"
-                                    QuerySubmitted="SearchBox_QuerySubmitted">
-                        <AutoSuggestBox.KeyboardAccelerators>
-                            <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="SearchAccelerator_Invoked" />
-                        </AutoSuggestBox.KeyboardAccelerators>
-                        <AutoSuggestBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Padding="0,6" Spacing="2">
-                                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{Binding Subtitle}" Style="{StaticResource IrisCaptionTextStyle}"
-                                               TextTrimming="CharacterEllipsis" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </AutoSuggestBox.ItemTemplate>
-                    </AutoSuggestBox>
+                    <Grid x:Name="SearchHost" Grid.Column="1" Width="440">
+                        <AutoSuggestBox x:Name="SearchBox"
+                                        PlaceholderText="Search videos, folders and collections"
+                                        TextMemberPath="Title"
+                                        CornerRadius="21"
+                                        TextChanged="SearchBox_TextChanged"
+                                        QuerySubmitted="SearchBox_QuerySubmitted"
+                                        GotFocus="SearchBox_GotFocus"
+                                        LostFocus="SearchBox_LostFocus"
+                                        AutomationProperties.Name="Search">
+                            <AutoSuggestBox.Resources>
+                                <SolidColorBrush x:Key="TextControlBackground" Color="#8C17181D" />
+                                <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#B317181D" />
+                                <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#E617181D" />
+                                <SolidColorBrush x:Key="TextControlBorderBrush" Color="#14FFFFFF" />
+                                <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#24FFFFFF" />
+                                <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#998B93FF" />
+                                <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#FF8A8A93" />
+                                <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#FF8A8A93" />
+                                <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#FF8A8A93" />
+                                <Thickness x:Key="TextControlBorderThemeThicknessFocused">1</Thickness>
+                            </AutoSuggestBox.Resources>
+                            <AutoSuggestBox.TextBoxStyle>
+                                <Style TargetType="TextBox" BasedOn="{StaticResource AutoSuggestBoxTextBoxStyle}">
+                                    <Setter Property="MinHeight" Value="42" />
+                                    <Setter Property="Padding" Value="40,10,64,0" />
+                                    <Setter Property="CornerRadius" Value="21" />
+                                </Style>
+                            </AutoSuggestBox.TextBoxStyle>
+                            <AutoSuggestBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Padding="0,6" Spacing="2">
+                                        <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Subtitle}" Style="{StaticResource IrisCaptionTextStyle}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </AutoSuggestBox.ItemTemplate>
+                        </AutoSuggestBox>
+                        <FontIcon Glyph="&#xE721;" FontSize="15" Margin="16,0,0,0" HorizontalAlignment="Left"
+                                  VerticalAlignment="Top" IsHitTestVisible="False" Height="42"
+                                  Foreground="{StaticResource IrisTextSecondaryBrush}" />
+                        <Border x:Name="SearchShortcutHint" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Margin="0,11,14,0" Padding="6,3" CornerRadius="6" IsHitTestVisible="False"
+                                BorderBrush="#1FFFFFFF" BorderThickness="1">
+                            <TextBlock Text="Ctrl K" FontSize="11" FontWeight="Medium"
+                                       Foreground="{StaticResource IrisTextTertiaryBrush}" />
+                        </Border>
+                    </Grid>
                     <Button Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Top"
-                            Click="OpenVideo_Click" ToolTipService.ToolTip="Play a video file without adding it to your library">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE8E5;" FontSize="14" />
-                            <TextBlock Text="Open video" />
+                            Style="{StaticResource IrisGhostButtonStyle}" Height="40" Padding="16,0" FontSize="14"
+                            Click="OpenVideo_Click" ToolTipService.ToolTip="Play a video file without adding it to your library (Ctrl+O)">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon Glyph="&#xE8E5;" FontSize="15" />
+                            <TextBlock Text="Open file" />
                         </StackPanel>
                     </Button>
                 </Grid>
 
                 <views:PlayerView x:Name="PlayerPage" Visibility="Collapsed" />
 
-                <Border x:Name="DropOverlay" Visibility="Collapsed" Margin="24" CornerRadius="20"
-                        BorderBrush="{ThemeResource AccentFillColorDefaultBrush}" BorderThickness="2"
-                        Background="#E51A1D29" IsHitTestVisible="False">
+                <Border x:Name="DropOverlay" Visibility="Collapsed" Margin="24" CornerRadius="22"
+                        BorderBrush="{StaticResource IrisAccentStrokeBrush}" BorderThickness="2"
+                        Background="#E6111216" IsHitTestVisible="False">
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
-                        <FontIcon Glyph="&#xE8E5;" FontSize="42" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                                  HorizontalAlignment="Center" />
-                        <TextBlock Text="Drop a video to play instantly" Style="{StaticResource SubtitleTextBlockStyle}"
+                        <Border Width="72" Height="72" CornerRadius="36" HorizontalAlignment="Center"
+                                Background="{StaticResource IrisAccentSoftBrush}">
+                            <FontIcon Glyph="&#xE8E5;" FontSize="30" Foreground="{StaticResource IrisAccentLightBrush}" />
+                        </Border>
+                        <TextBlock Text="Drop a video to play instantly" Style="{StaticResource IrisSectionTitleTextStyle}"
                                    HorizontalAlignment="Center" />
                         <TextBlock Text="It won’t be added to your folders or library."
-                                   HorizontalAlignment="Center" Opacity="0.72" />
+                                   HorizontalAlignment="Center" Style="{StaticResource IrisBodySecondaryTextStyle}" />
                     </StackPanel>
                 </Border>
             </Grid>
         </Border>
-    </NavigationView>
+    </Grid>
 </Window>

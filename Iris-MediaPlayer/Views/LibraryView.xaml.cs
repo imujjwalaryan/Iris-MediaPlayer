@@ -1,5 +1,7 @@
 using Iris_MediaPlayer.Models;
 using Iris_MediaPlayer.Services;
+using Iris_MediaPlayer.Views.Controls;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -18,24 +20,30 @@ public enum LibraryMode
 }
 
 /// <summary>
-/// Library page with three modes that share one layout: a header with the mode's actions,
-/// a breadcrumb when drilled in, a grid of folder or collection cards and a grid of videos.
+/// Library page. Three tabs share one layout: a header with the filter and the tab's main action,
+/// the tab bar with filters or a breadcrumb, a grid of folder or collection cards and a grid of videos.
+/// Opening a tab fades its cards up in a short stagger.
 /// </summary>
 public sealed partial class LibraryView : UserControl
 {
-    private const string FolderGlyph = "";
-    private const string CollectionGlyph = "";
+    private const string FolderGlyph = "";
+    private const string CollectionGlyph = "";
+    private static readonly TimeSpan EntranceWindow = TimeSpan.FromMilliseconds(700);
 
+    private readonly DispatcherQueueTimer _entranceTimer;
     private LibraryStore? _store;
     private LibraryMode _mode = LibraryMode.Videos;
     private string _query = string.Empty;
     private string _sort = "Name";
+    private string _chip = "All";
+    private bool _animateEntrance = true;
+    private bool _isUpdatingFilterBox;
 
-    // Folders mode: the library folder being browsed and the subfolder currently shown.
+    // Folders tab: the library folder being browsed and the subfolder currently shown.
     private string? _folderRoot;
     private string? _currentFolder;
 
-    // Collections mode
+    // Collections tab
     private MediaCollection? _selectedCollection;
 
     // What the empty message's button should do.
@@ -44,18 +52,31 @@ public sealed partial class LibraryView : UserControl
     public LibraryView()
     {
         InitializeComponent();
+        Tabs.Items = ["Videos", "Folders", "Collections"];
+        Tabs.SelectedIndex = 0;
+
+        _entranceTimer = DispatcherQueue.GetForCurrentThread()!.CreateTimer();
+        _entranceTimer.Interval = EntranceWindow;
+        _entranceTimer.IsRepeating = false;
+        _entranceTimer.Tick += (_, _) => _animateEntrance = false;
     }
 
     public event EventHandler<PlayRequest>? PlayRequested;
     public event EventHandler? AddFolderRequested;
 
-    /// <summary>Filter text from the app's search box.</summary>
+    /// <summary>Filter text, from the page's filter box or the app's search.</summary>
     public string SearchText
     {
         get => _query;
         set
         {
             var query = value?.Trim() ?? string.Empty;
+            if (!string.Equals(FilterBox.Text, value, StringComparison.Ordinal))
+            {
+                _isUpdatingFilterBox = true;
+                FilterBox.Text = value ?? string.Empty;
+                _isUpdatingFilterBox = false;
+            }
             if (string.Equals(query, _query, StringComparison.Ordinal))
                 return;
             _query = query;
@@ -75,9 +96,12 @@ public sealed partial class LibraryView : UserControl
         RefreshItems();
     }
 
+    public void FocusFilter() => FilterBox.Focus(FocusState.Keyboard);
+
     public void ShowMode(LibraryMode mode)
     {
         _mode = mode;
+        Tabs.SelectedIndex = (int)mode;
         if (mode == LibraryMode.Folders)
         {
             _folderRoot = null;
@@ -87,6 +111,17 @@ public sealed partial class LibraryView : UserControl
         {
             _selectedCollection = null;
         }
+        RefreshItems(scrollToTop: true);
+    }
+
+    /// <summary>Opens the Folders tab at <paramref name="folderPath"/> inside the library folder <paramref name="rootPath"/>.</summary>
+    public void ShowFolder(string rootPath, string folderPath)
+    {
+        _mode = LibraryMode.Folders;
+        Tabs.SelectedIndex = (int)LibraryMode.Folders;
+        var isLibraryFolder = _store?.FolderPaths.Contains(rootPath, StringComparer.OrdinalIgnoreCase) == true;
+        _folderRoot = isLibraryFolder ? rootPath : null;
+        _currentFolder = isLibraryFolder ? folderPath : null;
         RefreshItems(scrollToTop: true);
     }
 
@@ -116,13 +151,18 @@ public sealed partial class LibraryView : UserControl
         if (_store is null)
             return;
 
-        PageTitle.Text = _mode.ToString();
-        SortPanel.Visibility = _mode == LibraryMode.Videos ? Visibility.Visible : Visibility.Collapsed;
-        AddFolderButton.Visibility = _mode == LibraryMode.Folders ? Visibility.Visible : Visibility.Collapsed;
-        NewCollectionButton.Visibility = _mode == LibraryMode.Collections && _selectedCollection is null
-            ? Visibility.Visible : Visibility.Collapsed;
-        EditCollectionButton.Visibility = _mode == LibraryMode.Collections && _selectedCollection is not null
-            ? Visibility.Visible : Visibility.Collapsed;
+        if (scrollToTop)
+        {
+            _animateEntrance = true;
+            _entranceTimer.Stop();
+            _entranceTimer.Start();
+        }
+
+        VideoFilters.Visibility = _mode == LibraryMode.Videos ? Visibility.Visible : Visibility.Collapsed;
+        var inCollection = _mode == LibraryMode.Collections && _selectedCollection is not null;
+        PrimaryActionButton.Visibility = inCollection ? Visibility.Collapsed : Visibility.Visible;
+        PrimaryActionText.Text = _mode == LibraryMode.Collections ? "New collection" : "Add folder";
+        EditCollectionButton.Visibility = inCollection ? Visibility.Visible : Visibility.Collapsed;
         CollectionMoreButton.Visibility = EditCollectionButton.Visibility;
 
         switch (_mode)
@@ -142,18 +182,10 @@ public sealed partial class LibraryView : UserControl
             ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
     }
 
-    /// <summary>Fills the page. Pass null for a section that does not apply to this mode.</summary>
-    private void Render(
-        IReadOnlyList<LibraryTile>? folderTiles,
-        IReadOnlyList<LibraryTile>? collectionTiles,
-        IReadOnlyList<MediaItem> videos,
-        string tilesHeader)
+    /// <summary>Fills the page with cards (folders or collections) and videos.</summary>
+    private void Render(IReadOnlyList<LibraryTile> tiles, IReadOnlyList<MediaItem> videos, string tilesHeader)
     {
-        var tiles = folderTiles ?? collectionTiles ?? [];
-        FolderTileItems.ItemsSource = folderTiles ?? [];
-        CollectionTileItems.ItemsSource = collectionTiles ?? [];
-        FolderTileItems.Visibility = folderTiles is { Count: > 0 } ? Visibility.Visible : Visibility.Collapsed;
-        CollectionTileItems.Visibility = collectionTiles is { Count: > 0 } ? Visibility.Visible : Visibility.Collapsed;
+        TileItems.ItemsSource = tiles;
         VideoItems.ItemsSource = videos;
 
         TilesSection.Visibility = tiles.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -170,6 +202,12 @@ public sealed partial class LibraryView : UserControl
         EmptyMessage.Visibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private void Items_ElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
+    {
+        if (_animateEntrance)
+            Motion.EnterFromBelow(args.Element, TimeSpan.FromMilliseconds(Math.Min(args.Index, 12) * 40));
+    }
+
     private void ShowEmpty(string glyph, string title, string description, string? actionText = null, Action? action = null)
     {
         EmptyMessage.Show(glyph, title, description, actionText);
@@ -184,16 +222,24 @@ public sealed partial class LibraryView : UserControl
     private bool Matches(string name)
         => string.IsNullOrEmpty(_query) || name.Contains(_query, StringComparison.CurrentCultureIgnoreCase);
 
+    private bool MatchesChip(MediaItem media) => _chip switch
+    {
+        "4K" => media.QualityLabel == "4K",
+        "InProgress" => media.WatchProgress is > 0 and < 0.97,
+        "Unwatched" => media.WatchProgress <= 0,
+        _ => true
+    };
+
     private static string Count(int count, string noun) => $"{count:N0} {noun}{(count == 1 ? "" : "s")}";
 
-    // ---------- Videos mode ----------
+    // ---------- Videos tab ----------
 
     private void RenderVideos()
     {
         var store = _store!;
         Breadcrumb.Visibility = Visibility.Collapsed;
 
-        IEnumerable<MediaItem> videos = store.AllMedia.Where(Matches);
+        IEnumerable<MediaItem> videos = store.AllMedia.Where(media => Matches(media) && MatchesChip(media));
         videos = _sort switch
         {
             "Added" => videos.OrderByDescending(media => media.LastModified),
@@ -203,25 +249,51 @@ public sealed partial class LibraryView : UserControl
         };
         var list = videos.ToList();
 
+        var filtered = !string.IsNullOrEmpty(_query) || _chip != "All";
         PageSummary.Text = !string.IsNullOrEmpty(_query)
             ? $"{Count(list.Count, "result")} for “{_query}”"
             : store.AllMedia.Count == 0
                 ? "Add folders to build your library."
-                : $"{Count(store.AllMedia.Count, "video")} in {Count(store.FolderPaths.Count, "folder")}";
+                : filtered
+                    ? $"{Count(list.Count, "video")} of {store.AllMedia.Count:N0}"
+                    : $"{Count(store.AllMedia.Count, "video")}  ·  {Count(store.FolderPaths.Count, "folder")}";
 
         if (store.FolderPaths.Count == 0)
             ShowEmpty(FolderGlyph, "Your library is empty", "Add a folder and Iris will find every video inside it.",
                 "Add folder", () => AddFolderRequested?.Invoke(this, EventArgs.Empty));
-        else if (!string.IsNullOrEmpty(_query))
-            ShowEmpty("", "No matches", $"Nothing in your library matches “{_query}”.");
+        else if (filtered)
+            ShowEmpty("", "No matches", string.IsNullOrEmpty(_query)
+                ? "No videos match this filter."
+                : $"Nothing in your library matches “{_query}”.");
         else
-            ShowEmpty("", "No videos yet", "Iris didn’t find any videos in your folders.",
+            ShowEmpty("", "No videos yet", "Iris didn’t find any videos in your folders.",
                 "Add folder", () => AddFolderRequested?.Invoke(this, EventArgs.Empty));
 
-        Render(null, null, list, string.Empty);
+        Render([], list, string.Empty);
     }
 
-    // ---------- Folders mode ----------
+    private void Chip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton { Tag: string chip })
+            return;
+
+        _chip = chip;
+        foreach (var item in new[] { AllChip, UhdChip, InProgressChip, UnwatchedChip })
+            item.IsChecked = Equals(item.Tag, chip);
+        RefreshItems(scrollToTop: true);
+    }
+
+    private void Sort_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioMenuFlyoutItem { Tag: string sort } item)
+            return;
+
+        _sort = sort;
+        SortButtonText.Text = $"Sort: {item.Text}";
+        RefreshItems(scrollToTop: true);
+    }
+
+    // ---------- Folders tab ----------
 
     private void RenderFolders()
     {
@@ -233,15 +305,15 @@ public sealed partial class LibraryView : UserControl
             var roots = store.Folders.Where(folder => Matches(folder.Name)).Select(ToTile).ToList();
             PageSummary.Text = store.Folders.Count == 0
                 ? "Folders you add appear here."
-                : $"{Count(store.Folders.Count, "library folder")} · {Count(store.AllMedia.Count, "video")}";
+                : $"{Count(store.Folders.Count, "folder")}  ·  {Count(store.AllMedia.Count, "video")}";
 
             if (store.Folders.Count == 0)
                 ShowEmpty(FolderGlyph, "No folders yet", "Add a folder and Iris will scan it, and everything inside it, for videos.",
                     "Add folder", () => AddFolderRequested?.Invoke(this, EventArgs.Empty));
             else
-                ShowEmpty("", "No matches", $"No library folders match “{_query}”.");
+                ShowEmpty("", "No matches", $"No library folders match “{_query}”.");
 
-            Render(roots, null, [], "Folders");
+            Render(roots, [], "Folders");
             return;
         }
 
@@ -252,19 +324,27 @@ public sealed partial class LibraryView : UserControl
             .OrderBy(media => media.Title, NaturalStringComparer.Instance)
             .ToList();
 
-        var parts = new List<string>();
+        var parts = new List<string> { PathUtils.GetFolderName(_currentFolder) };
         if (subfolders.Count > 0)
             parts.Add(Count(subfolders.Count, "folder"));
         parts.Add(Count(videos.Count, "video"));
-        PageSummary.Text = string.Join(" · ", parts);
+        PageSummary.Text = string.Join("  ·  ", parts);
 
         ShowEmpty(FolderGlyph, "Nothing here",
             string.IsNullOrEmpty(_query) ? "This folder has no videos." : $"Nothing in this folder matches “{_query}”.");
-        Render(subfolders, null, videos, "Folders");
+        Render(subfolders, videos, "Folders");
     }
 
-    private static LibraryTile ToTile(MediaFolder folder)
-        => new(folder.Name, folder.MediaCountLabel, FolderGlyph, folder.Preview, folder);
+    private LibraryTile ToTile(MediaFolder folder)
+    {
+        // The three newest videos anywhere inside the folder become its stacked artwork.
+        var previews = _store!.AllMedia
+            .Where(media => PathUtils.IsPathWithin(media.FolderPath, folder.Path))
+            .OrderByDescending(media => media.LastModified)
+            .Take(3)
+            .ToList();
+        return new LibraryTile(folder.Name, folder.MediaCountLabel, FolderGlyph, previews, folder);
+    }
 
     private void UpdateFolderBreadcrumb()
     {
@@ -287,7 +367,7 @@ public sealed partial class LibraryView : UserControl
         Breadcrumb.Visibility = Visibility.Visible;
     }
 
-    // ---------- Collections mode ----------
+    // ---------- Collections tab ----------
 
     private void RenderCollections()
     {
@@ -299,20 +379,30 @@ public sealed partial class LibraryView : UserControl
             var tiles = store.Collections
                 .Where(collection => Matches(collection.Name))
                 .Select(collection => new LibraryTile(collection.Name, collection.VideoCountLabel, CollectionGlyph,
-                    collection.FilePaths.Select(store.ResolveMedia).FirstOrDefault(media => media is not null), collection))
+                    collection.FilePaths.Select(store.ResolveMedia).OfType<MediaItem>().Take(4).ToList(), collection))
                 .ToList();
             PageSummary.Text = store.Collections.Count == 0
                 ? "Playlists you build from any of your videos."
                 : Count(store.Collections.Count, "collection");
 
             if (store.Collections.Count == 0)
+            {
                 ShowEmpty(CollectionGlyph, "No collections yet",
                     "Collections are playlists you build from any videos, wherever they’re stored.",
                     "New collection", CreateCollection);
-            else
-                ShowEmpty("", "No matches", $"No collections match “{_query}”.");
+                Render([], [], "Collections");
+                return;
+            }
 
-            Render(null, tiles, [], "Collections");
+            if (tiles.Count == 0)
+            {
+                ShowEmpty("", "No matches", $"No collections match “{_query}”.");
+                Render([], [], "Collections");
+                return;
+            }
+
+            tiles.Add(new LibraryTile("New collection", string.Empty, CollectionGlyph, [], LibraryTile.NewCollection));
+            Render(tiles, [], "Collections");
             return;
         }
 
@@ -320,15 +410,15 @@ public sealed partial class LibraryView : UserControl
         Breadcrumb.Visibility = Visibility.Visible;
 
         var videos = GetCollectionMedia(_selectedCollection).Where(Matches).ToList();
-        PageSummary.Text = Count(_selectedCollection.FilePaths.Count, "video");
+        PageSummary.Text = $"{_selectedCollection.Name}  ·  {Count(_selectedCollection.FilePaths.Count, "video")}";
 
         if (_selectedCollection.FilePaths.Count == 0)
             ShowEmpty(CollectionGlyph, "This collection is empty", "Add videos from anywhere in your library.",
                 "Edit videos", EditCollectionVideos);
         else
-            ShowEmpty("", "No matches", $"Nothing in this collection matches “{_query}”.");
+            ShowEmpty("", "No matches", $"Nothing in this collection matches “{_query}”.");
 
-        Render(null, null, videos, string.Empty);
+        Render([], videos, string.Empty);
     }
 
     private List<MediaItem> GetCollectionMedia(MediaCollection collection)
@@ -346,6 +436,8 @@ public sealed partial class LibraryView : UserControl
         var collection = new MediaCollection { Name = name };
         _store.Collections.Add(collection);
         _store.SaveCollections();
+        _mode = LibraryMode.Collections;
+        Tabs.SelectedIndex = (int)LibraryMode.Collections;
         _selectedCollection = collection;
         RefreshItems(scrollToTop: true);
     }
@@ -422,7 +514,23 @@ public sealed partial class LibraryView : UserControl
         return await dialog.ShowAsync() == ContentDialogResult.Primary ? nameBox.Text.Trim() : null;
     }
 
-    // ---------- Card and header actions ----------
+    // ---------- Header, tabs and card actions ----------
+
+    private void Tabs_SelectionChanged(object? sender, int index) => ShowMode((LibraryMode)index);
+
+    private void FilterBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_isUpdatingFilterBox)
+            SearchText = FilterBox.Text;
+    }
+
+    private void PrimaryAction_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mode == LibraryMode.Collections)
+            CreateCollection();
+        else
+            AddFolderRequested?.Invoke(this, EventArgs.Empty);
+    }
 
     private void Tile_Click(object sender, RoutedEventArgs e)
     {
@@ -443,6 +551,17 @@ public sealed partial class LibraryView : UserControl
                 break;
         }
         RefreshItems(scrollToTop: true);
+    }
+
+    /// <summary>The card's "…" button only shows while the pointer is over the card.</summary>
+    private void Tile_PointerEntered(object sender, PointerRoutedEventArgs e) => SetOverflowVisible(sender, true);
+
+    private void Tile_PointerExited(object sender, PointerRoutedEventArgs e) => SetOverflowVisible(sender, false);
+
+    private static void SetOverflowVisible(object sender, bool visible)
+    {
+        if (sender is Grid { Children.Count: > 1 } grid && grid.Children[1] is Button overflow)
+            overflow.Opacity = visible ? 1 : 0;
     }
 
     private void Breadcrumb_ItemClicked(BreadcrumbBar sender, BreadcrumbBarItemClickedEventArgs args)
@@ -479,19 +598,9 @@ public sealed partial class LibraryView : UserControl
         var queue = _mode == LibraryMode.Collections && _selectedCollection is not null
             ? GetCollectionMedia(_selectedCollection)
             : null;
+        MediaCard.PrepareToPlay(sender);
         PlayRequested?.Invoke(this, new PlayRequest(media, queue));
     }
-
-    private void SortCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (SortCombo.SelectedItem is ComboBoxItem { Tag: string sort })
-        {
-            _sort = sort;
-            RefreshItems();
-        }
-    }
-
-    private void AddFolder_Click(object sender, RoutedEventArgs e) => AddFolderRequested?.Invoke(this, EventArgs.Empty);
 
     private void CreateCollection_Click(object sender, RoutedEventArgs e) => CreateCollection();
 
@@ -538,15 +647,15 @@ public sealed partial class LibraryView : UserControl
     private MenuFlyout BuildFolderMenu(LibraryTile tile, MediaFolder folder)
     {
         var menu = new MenuFlyout();
-        menu.Items.Add(CreateMenuItem("Open", "", () => OpenTile(tile)));
-        menu.Items.Add(CreateMenuItem("Show in File Explorer", "",
+        menu.Items.Add(CreateMenuItem("Open", "", () => OpenTile(tile)));
+        menu.Items.Add(CreateMenuItem("Show in File Explorer", "",
             async () => await Windows.System.Launcher.LaunchFolderPathAsync(folder.Path)));
 
         // Only top-level library folders can be removed; subfolders come with their parent.
         if (_store?.FolderPaths.Contains(folder.Path, StringComparer.OrdinalIgnoreCase) == true)
         {
             menu.Items.Add(new MenuFlyoutSeparator());
-            menu.Items.Add(CreateMenuItem("Remove from library", "", () => RemoveFolder(folder)));
+            menu.Items.Add(CreateMenuItem("Remove from library", "", () => RemoveFolder(folder)));
         }
         return menu;
     }
@@ -556,16 +665,16 @@ public sealed partial class LibraryView : UserControl
         var menu = new MenuFlyout();
         if (includeOpen)
         {
-            menu.Items.Add(CreateMenuItem("Open", "", () =>
+            menu.Items.Add(CreateMenuItem("Open", "", () =>
             {
                 _selectedCollection = collection;
                 RefreshItems(scrollToTop: true);
             }));
-            menu.Items.Add(CreateMenuItem("Edit videos", "", () => EditCollectionVideos(collection)));
+            menu.Items.Add(CreateMenuItem("Edit videos", "", () => EditCollectionVideos(collection)));
         }
-        menu.Items.Add(CreateMenuItem("Rename", "", () => RenameCollection(collection)));
+        menu.Items.Add(CreateMenuItem("Rename", "", () => RenameCollection(collection)));
         menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(CreateMenuItem("Delete collection", "", () => DeleteCollection(collection)));
+        menu.Items.Add(CreateMenuItem("Delete collection", "", () => DeleteCollection(collection)));
         return menu;
     }
 
@@ -637,4 +746,16 @@ public sealed partial class LibraryView : UserControl
     {
         public override string ToString() => Label;
     }
+}
+
+/// <summary>Picks the dashed "New collection" card for its sentinel tile and the normal card for the rest.</summary>
+public sealed partial class TileTemplateSelector : DataTemplateSelector
+{
+    public DataTemplate? Tile { get; set; }
+    public DataTemplate? NewCollection { get; set; }
+
+    protected override DataTemplate? SelectTemplateCore(object item)
+        => item is LibraryTile { IsNewCollection: true } ? NewCollection : Tile;
+
+    protected override DataTemplate? SelectTemplateCore(object item, DependencyObject container) => SelectTemplateCore(item);
 }

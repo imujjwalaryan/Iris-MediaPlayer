@@ -5,6 +5,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.Linq;
 using System.Numerics;
@@ -15,28 +16,36 @@ using Windows.Storage.Pickers;
 namespace Iris_MediaPlayer;
 
 /// <summary>
-/// App shell: navigation rail, switching between sections, file pickers, drag and drop,
-/// and fullscreen. Each section's own UI and logic lives in its view under Views/.
+/// App shell: title bar, navigation rail, switching between sections, file pickers, drag and drop,
+/// fullscreen and the mini player. Each section's own UI and logic lives in its view under Views/.
 /// </summary>
 public sealed partial class MainWindow : Window
 {
     private readonly LibraryStore _store;
-    private bool _returnToLibrary;
+    private readonly MiniPlayerMode _miniPlayer = new();
+    private Button? _selectedRailButton;
+    private UIElement _sectionBeforePlayer;
+    private Button? _railBeforePlayer;
     private bool _isPlayerFullscreen;
-    private bool _frameIsFlat;
 
     public MainWindow()
     {
         InitializeComponent();
+        WindowChrome.ExtendIntoTitleBar(this, AppTitleBar);
+        _sectionBeforePlayer = HomePage;
 
         _store = new LibraryStore(DispatcherQueue);
-        _store.ScanningChanged += isScanning => AppNavigation.IsEnabled = !isScanning;
+        _store.ScanningChanged += isScanning => Rail.IsHitTestVisible = !isScanning;
 
         HomePage.Initialize(_store);
         HomePage.PlayRequested += (_, request) => StartPlayback(request);
         HomePage.OpenVideoRequested += (_, _) => PickAndPlayVideo();
         HomePage.AddFolderRequested += (_, _) => PickAndAddFolder();
-        HomePage.BrowseLibraryRequested += (_, _) => AppNavigation.SelectedItem = AppNavigation.MenuItems[1];
+        HomePage.OpenFolderRequested += (_, media) =>
+        {
+            ShowLibrary();
+            LibraryPage.ShowFolder(media.LibraryRootPath, media.FolderPath);
+        };
 
         LibraryPage.Initialize(_store);
         LibraryPage.PlayRequested += (_, request) => StartPlayback(request);
@@ -45,62 +54,60 @@ public sealed partial class MainWindow : Window
         PlayerPage.Initialize(_store);
         PlayerPage.BackRequested += (_, _) => ReturnFromPlayer();
         PlayerPage.FullscreenToggleRequested += (_, _) => SetPlayerFullscreen(!_isPlayerFullscreen);
+        PlayerPage.MiniPlayerToggleRequested += (_, _) => SetMiniPlayer(!_miniPlayer.IsActive);
+        PlayerPage.MiniPlayerCloseRequested += (_, _) =>
+        {
+            SetMiniPlayer(false);
+            ReturnFromPlayer();
+        };
+        PlayerPage.MediaChanged += (_, media) => TitleBarText.Text = media.Title;
 
-        AppNavigation.SelectedItem = AppNavigation.MenuItems[0];
+        Rail.Loaded += async (_, _) =>
+        {
+            SelectRail(HomeRailButton, animate: false);
+            await _store.RefreshAsync();
+        };
+        // Settings sits at the bottom of the rail, so its plate position changes with the window height.
+        Rail.SizeChanged += (_, _) =>
+        {
+            if (_selectedRailButton is not null)
+                SelectRail(_selectedRailButton, animate: false);
+        };
         Closed += MainWindow_Closed;
     }
 
     // ---------- Navigation ----------
 
-    private async void AppNavigation_Loaded(object sender, RoutedEventArgs e)
+    private void RailButton_Click(object sender, RoutedEventArgs e)
     {
-        await _store.RefreshAsync();
-    }
-
-    private void AppNavigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
-    {
-        if (PlayerPage.Visibility == Visibility.Visible)
-        {
-            SetPlayerFullscreen(false);
-            SetFrameMode(false);
-            PlayerPage.Stop();
-        }
-
-        if (args.IsSettingsSelected)
-        {
-            ShowPlaceholder("", "Settings are on the way",
-                "Player options live in the gear menu while a video plays. App-wide settings will land here.");
-            return;
-        }
-
-        if (args.SelectedItem is not NavigationViewItem item)
+        if (sender is not Button button)
             return;
 
-        switch (item.Tag?.ToString())
+        switch (button.Tag as string)
         {
             case "Library":
-            case "LibraryVideos":
-                ShowLibrary(LibraryMode.Videos);
-                break;
-            case "LibraryFolders":
-                ShowLibrary(LibraryMode.Folders);
-                break;
-            case "LibraryCollections":
-                ShowLibrary(LibraryMode.Collections);
+                ShowLibrary();
                 break;
             case "Jellyfin":
-                ShowPlaceholder("", "Jellyfin is coming",
+                SelectRail(button);
+                ShowPlaceholder("", "Jellyfin is coming",
                     "Stream from your Jellyfin server right inside Iris. This arrives after the local player is finished.");
                 break;
+            case "Settings":
+                SelectRail(button);
+                ShowPlaceholder("", "Settings are on the way",
+                    "Player options live in the playback sheet while a video plays. App-wide settings will land here.");
+                break;
             default:
+                SelectRail(HomeRailButton);
                 ShowSection(HomePage);
                 break;
         }
     }
 
-    private void ShowLibrary(LibraryMode mode)
+    private void ShowLibrary()
     {
-        LibraryPage.ShowMode(mode);
+        SelectRail(LibraryRailButton);
         ShowSection(LibraryPage);
         _ = _store.RefreshAsync(showBusy: false);
     }
@@ -111,25 +118,58 @@ public sealed partial class MainWindow : Window
         ShowSection(PlaceholderPage);
     }
 
+    /// <summary>Moves the rail's selection plate and indicator to <paramref name="button"/>.</summary>
+    private void SelectRail(Button button, bool animate = true)
+    {
+        _selectedRailButton = button;
+        foreach (var item in new[] { HomeRailButton, LibraryRailButton, JellyfinRailButton, SettingsRailButton })
+        {
+            item.Foreground = (Brush)Application.Current.Resources[item == button ? "IrisTextBrush" : "IrisTextTertiaryBrush"];
+            AutomationPropertiesHelper.SetIsSelected(item, item == button);
+        }
+
+        if (Rail.ActualHeight <= 0)
+            return;
+
+        var top = (float)button.TransformToVisual(Rail).TransformPoint(new Windows.Foundation.Point(0, 0)).Y
+                  - (float)Rail.Padding.Top;
+        var offset = new Vector3(0, top, 0);
+        if (animate)
+        {
+            Motion.Translate(RailSelection, offset, Motion.Slow);
+            Motion.Translate(RailIndicator, offset, Motion.Slow);
+        }
+        else
+        {
+            Motion.SetTranslation(RailSelection, offset);
+            Motion.SetTranslation(RailIndicator, offset);
+        }
+    }
+
     /// <summary>Shows exactly one of the section views.</summary>
     private void ShowSection(UIElement section)
     {
+        if (section != PlayerPage && PlayerPage.Visibility == Visibility.Visible)
+            LeavePlayerMode();
+
         HomePage.Visibility = section == HomePage ? Visibility.Visible : Visibility.Collapsed;
         LibraryPage.Visibility = section == LibraryPage ? Visibility.Visible : Visibility.Collapsed;
         PlaceholderPage.Visibility = section == PlaceholderPage ? Visibility.Visible : Visibility.Collapsed;
         PlayerPage.Visibility = section == PlayerPage ? Visibility.Visible : Visibility.Collapsed;
-        TopBar.Visibility = section == PlayerPage ? Visibility.Collapsed : Visibility.Visible;
+        TopBar.Visibility = section == HomePage || section == PlaceholderPage ? Visibility.Visible : Visibility.Collapsed;
+        HomePage.IsActive = section == HomePage;
     }
 
     // ---------- Search ----------
 
     private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
+        SearchShortcutHint.Visibility = string.IsNullOrEmpty(sender.Text) && sender.FocusState == FocusState.Unfocused
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput)
             return;
 
-        // The library page filters live; the dropdown offers quick jumps straight into a video.
-        LibraryPage.SearchText = sender.Text;
         sender.ItemsSource = _store.Search(sender.Text.Trim()).Take(8).ToList();
     }
 
@@ -142,9 +182,42 @@ public sealed partial class MainWindow : Window
         }
 
         // Enter with no suggestion chosen shows every match in the library.
+        if (string.IsNullOrWhiteSpace(sender.Text))
+            return;
         LibraryPage.SearchText = sender.Text;
-        if (!string.IsNullOrWhiteSpace(sender.Text) && LibraryPage.Visibility != Visibility.Visible)
-            AppNavigation.SelectedItem = AppNavigation.MenuItems[1];
+        ShowLibrary();
+    }
+
+    private void SearchBox_GotFocus(object sender, RoutedEventArgs e)
+    {
+        SearchShortcutHint.Visibility = Visibility.Collapsed;
+        AnimateSearchWidth(500);
+    }
+
+    private void SearchBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        SearchShortcutHint.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
+        AnimateSearchWidth(440);
+    }
+
+    private void AnimateSearchWidth(double width)
+    {
+        var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+        {
+            To = width,
+            Duration = Motion.Slow,
+            EnableDependentAnimation = true,
+            EasingFunction = new Microsoft.UI.Xaml.Media.Animation.ExponentialEase
+            {
+                EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut,
+                Exponent = 6
+            }
+        };
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, SearchHost);
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, "Width");
+        var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+        storyboard.Children.Add(animation);
+        storyboard.Begin();
     }
 
     private void SearchAccelerator_Invoked(Microsoft.UI.Xaml.Input.KeyboardAccelerator sender,
@@ -155,6 +228,18 @@ public sealed partial class MainWindow : Window
             SearchBox.Focus(FocusState.Keyboard);
             args.Handled = true;
         }
+        else if (LibraryPage.Visibility == Visibility.Visible)
+        {
+            LibraryPage.FocusFilter();
+            args.Handled = true;
+        }
+    }
+
+    private void OpenAccelerator_Invoked(Microsoft.UI.Xaml.Input.KeyboardAccelerator sender,
+        Microsoft.UI.Xaml.Input.KeyboardAcceleratorInvokedEventArgs args)
+    {
+        PickAndPlayVideo();
+        args.Handled = true;
     }
 
     private void OpenVideo_Click(object sender, RoutedEventArgs e) => PickAndPlayVideo();
@@ -248,7 +333,7 @@ public sealed partial class MainWindow : Window
                 ? "Drop a video to play, or subtitles to add them"
                 : "Drop to play in Iris";
             e.DragUIOverride.IsCaptionVisible = true;
-            DropOverlay.Visibility = Visibility.Visible;
+            DropOverlay.Visibility = _miniPlayer.IsActive ? Visibility.Collapsed : Visibility.Visible;
         }
         else
         {
@@ -257,70 +342,111 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    // ---------- Player and fullscreen ----------
+    // ---------- Player, fullscreen and mini player ----------
 
     private void StartPlayback(PlayRequest request)
     {
-        _returnToLibrary = LibraryPage.Visibility == Visibility.Visible;
+        if (PlayerPage.Visibility != Visibility.Visible)
+        {
+            _sectionBeforePlayer = LibraryPage.Visibility == Visibility.Visible ? LibraryPage : HomePage;
+            _railBeforePlayer = _sectionBeforePlayer == LibraryPage ? LibraryRailButton : HomeRailButton;
+        }
+
         ShowSection(PlayerPage);
+        EnterPlayerMode();
         PlayerPage.Play(request.Media, request.Queue ?? _store.GetFolderQueue(request.Media));
     }
 
     private void ReturnFromPlayer()
     {
-        SetPlayerFullscreen(false);
+        // ShowSection leaves player mode: fullscreen, mini player and playback all stop there.
+        ShowSection(_sectionBeforePlayer);
+        SelectRail(_railBeforePlayer ?? HomeRailButton, animate: false);
+    }
+
+    /// <summary>The player covers the rail and the content frame; the title bar stays.</summary>
+    private void EnterPlayerMode()
+    {
+        Rail.Visibility = Visibility.Collapsed;
+        Grid.SetColumn(ContentSurface, 0);
+        Grid.SetColumnSpan(ContentSurface, 2);
+        ContentSurface.CornerRadius = new CornerRadius(0);
+        ContentSurface.BorderThickness = new Thickness(0);
+        UpdateContentClip();
+    }
+
+    private void LeavePlayerMode()
+    {
+        if (_isPlayerFullscreen)
+            SetPlayerFullscreen(false);
+        if (_miniPlayer.IsActive)
+            SetMiniPlayer(false);
+
         PlayerPage.Stop();
-        SetFrameMode(false);
-        ShowSection(_returnToLibrary ? LibraryPage : HomePage);
-        if (!_returnToLibrary)
-            AppNavigation.SelectedItem = AppNavigation.MenuItems[0];
+        TitleBarText.Text = "Iris";
+        Rail.Visibility = Visibility.Visible;
+        Grid.SetColumn(ContentSurface, 1);
+        Grid.SetColumnSpan(ContentSurface, 1);
+        ContentSurface.CornerRadius = new CornerRadius(16, 0, 0, 0);
+        ContentSurface.BorderThickness = new Thickness(1, 1, 0, 0);
+        UpdateContentClip();
     }
 
     private void SetPlayerFullscreen(bool enabled)
     {
         if (_isPlayerFullscreen == enabled)
             return;
+        if (enabled && _miniPlayer.IsActive)
+            SetMiniPlayer(false);
 
         AppWindow.SetPresenter(enabled ? AppWindowPresenterKind.FullScreen : AppWindowPresenterKind.Overlapped);
         _isPlayerFullscreen = enabled;
-        AppNavigation.IsPaneVisible = !enabled;
-        SetFrameMode(enabled);
+        SetTitleBarVisible(!enabled);
         PlayerPage.SetFullscreen(enabled);
     }
 
-    /// <summary>Flat removes the rounded content frame so video can fill the screen edge to edge.</summary>
-    private void SetFrameMode(bool flat)
+    private void SetMiniPlayer(bool enabled)
     {
-        _frameIsFlat = flat;
-        RoundedContentSurface.Margin = flat ? new Thickness(0) : new Thickness(0, 0, 8, 8);
-        RoundedContentSurface.CornerRadius = flat ? new CornerRadius(0) : new CornerRadius(16);
-        RoundedContentSurface.BorderThickness = flat ? new Thickness(0) : new Thickness(1);
-        PlayerPage.ApplyFrameMode(squareCorners: flat, overlayBars: flat);
-        UpdateContentClip();
+        if (_miniPlayer.IsActive == enabled)
+            return;
+
+        if (enabled)
+        {
+            if (_isPlayerFullscreen)
+                SetPlayerFullscreen(false);
+            _miniPlayer.Enter(AppWindow, Content.XamlRoot?.RasterizationScale ?? 1);
+        }
+        else
+        {
+            _miniPlayer.Exit(AppWindow);
+        }
+
+        SetTitleBarVisible(!enabled);
+        PlayerPage.SetMiniMode(enabled);
+    }
+
+    private void SetTitleBarVisible(bool visible)
+    {
+        TitleBarRow.Height = visible ? new GridLength((double)Application.Current.Resources["IrisTitleBarHeight"]) : new GridLength(0);
+        AppTitleBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ContentRoot_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateContentClip();
 
+    /// <summary>Clips the pages to the content surface's rounded top-left corner.</summary>
     private void UpdateContentClip()
     {
         var visual = ElementCompositionPreview.GetElementVisual(ContentRoot);
-        if (_frameIsFlat || ContentRoot.ActualWidth <= 0 || ContentRoot.ActualHeight <= 0)
+        if (ContentSurface.CornerRadius.TopLeft <= 0 || ContentRoot.ActualWidth <= 0 || ContentRoot.ActualHeight <= 0)
         {
             visual.Clip = null;
             return;
         }
 
-        const float innerCornerRadius = 15f;
-        var radius = new Vector2(innerCornerRadius);
+        var radius = new Vector2(15f);
         visual.Clip = visual.Compositor.CreateRectangleClip(
-            0,
-            0,
-            (float)ContentRoot.ActualWidth,
-            (float)ContentRoot.ActualHeight,
-            radius,
-            radius,
-            radius,
-            radius);
+            0, 0, (float)ContentRoot.ActualWidth, (float)ContentRoot.ActualHeight,
+            radius, Vector2.Zero, Vector2.Zero, Vector2.Zero);
     }
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)
@@ -328,4 +454,11 @@ public sealed partial class MainWindow : Window
         _store.Dispose();
         PlayerPage.Shutdown();
     }
+}
+
+/// <summary>Marks the current rail item for screen readers.</summary>
+internal static class AutomationPropertiesHelper
+{
+    public static void SetIsSelected(UIElement element, bool selected)
+        => Microsoft.UI.Xaml.Automation.AutomationProperties.SetItemStatus(element, selected ? "Current page" : string.Empty);
 }

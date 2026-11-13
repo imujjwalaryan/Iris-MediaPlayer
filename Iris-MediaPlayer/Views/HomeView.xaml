@@ -7,154 +7,182 @@
 
     <UserControl.Resources>
         <DataTemplate x:Key="RowCardTemplate">
-            <Button Style="{StaticResource IrisCardButtonStyle}" Width="296"
+            <Button Style="{StaticResource IrisCardButtonStyle}" Width="272"
                     Tag="{Binding FilePath}" Click="MediaCard_Click">
                 <controls:MediaCard />
             </Button>
         </DataTemplate>
         <DataTemplate x:Key="ContinueCardTemplate">
-            <Button Style="{StaticResource IrisCardButtonStyle}" Width="296"
+            <Button Style="{StaticResource IrisCardButtonStyle}" Width="272"
                     Tag="{Binding FilePath}" Click="ContinueCard_Click">
                 <controls:MediaCard ShowTimeRemaining="True" />
             </Button>
         </DataTemplate>
+        <Color x:Key="HeroFade">#FF09090B</Color>
     </UserControl.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
-        <StackPanel Spacing="36" Padding="0,0,0,40">
+    <ScrollViewer x:Name="PageScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
+        <StackPanel Padding="0,0,0,40">
 
-            <!-- Hero: full-bleed artwork that fades into the page on the left and bottom -->
-            <Grid x:Name="Hero" Height="540" Visibility="Collapsed">
-                <Image x:Name="HeroImage" Stretch="UniformToFill"
-                       HorizontalAlignment="Stretch" VerticalAlignment="Center" />
-                <Border>
+            <!--
+                Hero: up to three featured videos. Their artwork crossfades every 7 s (900 ms) and drifts
+                slowly (Ken Burns); the text fades up in a short stagger each time it changes.
+            -->
+            <Grid x:Name="Hero" Height="520" Visibility="Collapsed" SizeChanged="Hero_SizeChanged">
+                <Grid x:Name="BackdropLayerA">
+                    <Image x:Name="BackdropImageA" Stretch="UniformToFill" SizeChanged="Backdrop_SizeChanged" />
+                </Grid>
+                <Grid x:Name="BackdropLayerB">
+                    <Image x:Name="BackdropImageB" Stretch="UniformToFill" SizeChanged="Backdrop_SizeChanged" />
+                </Grid>
+                <Border IsHitTestVisible="False">
                     <Border.Background>
                         <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                            <GradientStop Color="#F20F1115" Offset="0" />
-                            <GradientStop Color="#CC0F1115" Offset="0.3" />
-                            <GradientStop Color="#590F1115" Offset="0.6" />
-                            <GradientStop Color="#000F1115" Offset="0.85" />
+                            <GradientStop Color="#F509090B" Offset="0" />
+                            <GradientStop Color="#C709090B" Offset="0.32" />
+                            <GradientStop Color="#2E09090B" Offset="0.66" />
+                            <GradientStop Color="#0009090B" Offset="1" />
                         </LinearGradientBrush>
                     </Border.Background>
                 </Border>
-                <Border>
+                <Border IsHitTestVisible="False">
                     <Border.Background>
                         <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="#000F1115" Offset="0.4" />
-                            <GradientStop Color="#990F1115" Offset="0.75" />
-                            <GradientStop Color="#FF0F1115" Offset="1" />
+                            <GradientStop Color="#8C09090B" Offset="0" />
+                            <GradientStop Color="#0009090B" Offset="0.22" />
+                            <GradientStop Color="#0009090B" Offset="0.55" />
+                            <GradientStop Color="{StaticResource HeroFade}" Offset="1" />
                         </LinearGradientBrush>
                     </Border.Background>
                 </Border>
 
-                <StackPanel VerticalAlignment="Bottom" HorizontalAlignment="Left" MaxWidth="640"
-                            Margin="40,0,32,12" Spacing="12">
+                <StackPanel x:Name="HeroText" VerticalAlignment="Bottom" HorizontalAlignment="Left" MaxWidth="620"
+                            Margin="56,0,32,76" Spacing="14">
                     <TextBlock x:Name="HeroEyebrow" Style="{StaticResource IrisEyebrowTextStyle}" />
-                    <TextBlock x:Name="HeroTitle" FontSize="40" FontWeight="SemiBold" LineHeight="48"
+                    <TextBlock x:Name="HeroTitle" Style="{StaticResource IrisDisplayTextStyle}"
                                TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
-                    <TextBlock x:Name="HeroMeta" Style="{StaticResource IrisBodySecondaryTextStyle}" />
-                    <StackPanel x:Name="HeroProgressPanel" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
-                        <ProgressBar x:Name="HeroProgress" Width="220" Maximum="1" VerticalAlignment="Center" />
-                        <TextBlock x:Name="HeroRemaining" Style="{StaticResource IrisCaptionTextStyle}" VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Border x:Name="HeroQualityBadge" Padding="8,3" CornerRadius="6" Background="#1AFFFFFF"
+                                VerticalAlignment="Center">
+                            <TextBlock x:Name="HeroQuality" FontSize="12" FontWeight="SemiBold" />
+                        </Border>
+                        <TextBlock x:Name="HeroMeta" FontSize="14" VerticalAlignment="Center"
+                                   Foreground="{StaticResource IrisTextMutedBrush}" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,10,0,0">
-                        <Button x:Name="HeroPlayButton" Style="{StaticResource AccentButtonStyle}"
-                                Click="HeroPlay_Click" Padding="20,9">
+                    <StackPanel x:Name="HeroProgressPanel" Orientation="Horizontal" Spacing="12">
+                        <Grid Width="240" Height="4" CornerRadius="2" VerticalAlignment="Center"
+                              Background="#29FFFFFF">
+                            <Border x:Name="HeroProgressFill" HorizontalAlignment="Left" CornerRadius="2"
+                                    Background="{StaticResource IrisAccentBrush}" />
+                        </Grid>
+                        <TextBlock x:Name="HeroRemaining" FontSize="13" VerticalAlignment="Center"
+                                   Foreground="{StaticResource IrisTextSecondaryBrush}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,0">
+                        <Button x:Name="HeroPlayButton" Style="{StaticResource IrisPrimaryButtonStyle}" Click="HeroPlay_Click">
                             <StackPanel Orientation="Horizontal" Spacing="10">
-                                <FontIcon Glyph="&#xE768;" FontSize="14" />
-                                <TextBlock x:Name="HeroPlayText" Text="Play" FontWeight="SemiBold" />
+                                <FontIcon Glyph="&#xF5B0;" FontSize="14" />
+                                <TextBlock x:Name="HeroPlayText" Text="Play" />
                             </StackPanel>
                         </Button>
-                        <Button Click="BrowseLibrary_Click" Padding="20,9">
+                        <Button x:Name="HeroFolderButton" Style="{StaticResource IrisGhostButtonStyle}" Click="HeroFolder_Click">
                             <StackPanel Orientation="Horizontal" Spacing="10">
-                                <FontIcon Glyph="&#xE8F1;" FontSize="14" />
-                                <TextBlock Text="Browse library" />
+                                <FontIcon Glyph="&#xE8B7;" FontSize="15" />
+                                <TextBlock Text="Open folder" />
                             </StackPanel>
                         </Button>
                     </StackPanel>
                 </StackPanel>
+
+                <StackPanel x:Name="HeroDots" Orientation="Horizontal" Spacing="8"
+                            HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,40,84" />
             </Grid>
 
             <!-- First run / empty library -->
-            <controls:EmptyState x:Name="WelcomeState" Visibility="Collapsed" Margin="0,140,0,0"
+            <controls:EmptyState x:Name="WelcomeState" Visibility="Collapsed" Margin="0,160,0,0"
                                  ActionClick="WelcomeAction_Click" SecondaryActionClick="WelcomeSecondaryAction_Click" />
 
-            <!-- Continue watching -->
-            <StackPanel x:Name="ContinueSection" Spacing="8" Visibility="Collapsed">
-                <Grid Margin="40,0,32,0">
-                    <TextBlock Text="Continue watching" Style="{StaticResource IrisSectionTitleTextStyle}" VerticalAlignment="Center" />
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
-                        <Button Style="{StaticResource IrisSubtleIconButtonStyle}" Tag="ContinueScroller" Click="ScrollRowBack_Click"
-                                ToolTipService.ToolTip="Scroll left">
-                            <FontIcon Glyph="&#xE76B;" FontSize="12" />
-                        </Button>
-                        <Button Style="{StaticResource IrisSubtleIconButtonStyle}" Tag="ContinueScroller" Click="ScrollRowForward_Click"
-                                ToolTipService.ToolTip="Scroll right">
-                            <FontIcon Glyph="&#xE76C;" FontSize="12" />
-                        </Button>
-                    </StackPanel>
-                </Grid>
-                <ScrollViewer x:Name="ContinueScroller" Padding="32,0" HorizontalScrollMode="Enabled"
-                              HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled"
-                              VerticalScrollBarVisibility="Disabled">
-                    <ItemsRepeater x:Name="ContinueItems" ItemTemplate="{StaticResource ContinueCardTemplate}">
-                        <ItemsRepeater.Layout>
-                            <StackLayout Orientation="Horizontal" Spacing="4" />
-                        </ItemsRepeater.Layout>
-                    </ItemsRepeater>
-                </ScrollViewer>
-            </StackPanel>
+            <StackPanel x:Name="Rows" Spacing="26" Margin="0,-40,0,0">
+                <!-- Continue watching -->
+                <StackPanel x:Name="ContinueSection" Spacing="6" Visibility="Collapsed">
+                    <Grid Margin="56,0,40,0">
+                        <TextBlock Text="Continue watching" Style="{StaticResource IrisSectionTitleTextStyle}" VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                            <Button Style="{StaticResource IrisOutlineIconButtonStyle}" Tag="ContinueScroller" Click="ScrollRowBack_Click"
+                                    ToolTipService.ToolTip="Scroll left" AutomationProperties.Name="Scroll left">
+                                <FontIcon Glyph="&#xE76B;" FontSize="12" />
+                            </Button>
+                            <Button Style="{StaticResource IrisOutlineIconButtonStyle}" Tag="ContinueScroller" Click="ScrollRowForward_Click"
+                                    ToolTipService.ToolTip="Scroll right" AutomationProperties.Name="Scroll right">
+                                <FontIcon Glyph="&#xE76C;" FontSize="12" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                    <ScrollViewer x:Name="ContinueScroller" Padding="48,0,40,0" HorizontalScrollMode="Enabled"
+                                  HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled"
+                                  VerticalScrollBarVisibility="Disabled">
+                        <ItemsRepeater x:Name="ContinueItems" ItemTemplate="{StaticResource ContinueCardTemplate}"
+                                       ElementPrepared="RowItems_ElementPrepared">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Orientation="Horizontal" Spacing="4" />
+                            </ItemsRepeater.Layout>
+                        </ItemsRepeater>
+                    </ScrollViewer>
+                </StackPanel>
 
-            <!-- Recently added -->
-            <StackPanel x:Name="AddedSection" Spacing="8" Visibility="Collapsed">
-                <Grid Margin="40,0,32,0">
-                    <TextBlock Text="Recently added" Style="{StaticResource IrisSectionTitleTextStyle}" VerticalAlignment="Center" />
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
-                        <Button Style="{StaticResource IrisSubtleIconButtonStyle}" Tag="AddedScroller" Click="ScrollRowBack_Click"
-                                ToolTipService.ToolTip="Scroll left">
-                            <FontIcon Glyph="&#xE76B;" FontSize="12" />
-                        </Button>
-                        <Button Style="{StaticResource IrisSubtleIconButtonStyle}" Tag="AddedScroller" Click="ScrollRowForward_Click"
-                                ToolTipService.ToolTip="Scroll right">
-                            <FontIcon Glyph="&#xE76C;" FontSize="12" />
-                        </Button>
-                    </StackPanel>
-                </Grid>
-                <ScrollViewer x:Name="AddedScroller" Padding="32,0" HorizontalScrollMode="Enabled"
-                              HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled"
-                              VerticalScrollBarVisibility="Disabled">
-                    <ItemsRepeater x:Name="AddedItems" ItemTemplate="{StaticResource RowCardTemplate}">
-                        <ItemsRepeater.Layout>
-                            <StackLayout Orientation="Horizontal" Spacing="4" />
-                        </ItemsRepeater.Layout>
-                    </ItemsRepeater>
-                </ScrollViewer>
-            </StackPanel>
+                <!-- Recently added -->
+                <StackPanel x:Name="AddedSection" Spacing="6" Visibility="Collapsed">
+                    <Grid Margin="56,0,40,0">
+                        <TextBlock Text="Recently added" Style="{StaticResource IrisSectionTitleTextStyle}" VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                            <Button Style="{StaticResource IrisOutlineIconButtonStyle}" Tag="AddedScroller" Click="ScrollRowBack_Click"
+                                    ToolTipService.ToolTip="Scroll left" AutomationProperties.Name="Scroll left">
+                                <FontIcon Glyph="&#xE76B;" FontSize="12" />
+                            </Button>
+                            <Button Style="{StaticResource IrisOutlineIconButtonStyle}" Tag="AddedScroller" Click="ScrollRowForward_Click"
+                                    ToolTipService.ToolTip="Scroll right" AutomationProperties.Name="Scroll right">
+                                <FontIcon Glyph="&#xE76C;" FontSize="12" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                    <ScrollViewer x:Name="AddedScroller" Padding="48,0,40,0" HorizontalScrollMode="Enabled"
+                                  HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled"
+                                  VerticalScrollBarVisibility="Disabled">
+                        <ItemsRepeater x:Name="AddedItems" ItemTemplate="{StaticResource RowCardTemplate}"
+                                       ElementPrepared="RowItems_ElementPrepared">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Orientation="Horizontal" Spacing="4" />
+                            </ItemsRepeater.Layout>
+                        </ItemsRepeater>
+                    </ScrollViewer>
+                </StackPanel>
 
-            <!-- Recently played -->
-            <StackPanel x:Name="RecentSection" Spacing="8" Visibility="Collapsed">
-                <Grid Margin="40,0,32,0">
-                    <TextBlock Text="Recently played" Style="{StaticResource IrisSectionTitleTextStyle}" VerticalAlignment="Center" />
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
-                        <Button Style="{StaticResource IrisSubtleIconButtonStyle}" Tag="RecentScroller" Click="ScrollRowBack_Click"
-                                ToolTipService.ToolTip="Scroll left">
-                            <FontIcon Glyph="&#xE76B;" FontSize="12" />
-                        </Button>
-                        <Button Style="{StaticResource IrisSubtleIconButtonStyle}" Tag="RecentScroller" Click="ScrollRowForward_Click"
-                                ToolTipService.ToolTip="Scroll right">
-                            <FontIcon Glyph="&#xE76C;" FontSize="12" />
-                        </Button>
-                    </StackPanel>
-                </Grid>
-                <ScrollViewer x:Name="RecentScroller" Padding="32,0" HorizontalScrollMode="Enabled"
-                              HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled"
-                              VerticalScrollBarVisibility="Disabled">
-                    <ItemsRepeater x:Name="RecentItems" ItemTemplate="{StaticResource RowCardTemplate}">
-                        <ItemsRepeater.Layout>
-                            <StackLayout Orientation="Horizontal" Spacing="4" />
-                        </ItemsRepeater.Layout>
-                    </ItemsRepeater>
-                </ScrollViewer>
+                <!-- Recently played -->
+                <StackPanel x:Name="RecentSection" Spacing="6" Visibility="Collapsed">
+                    <Grid Margin="56,0,40,0">
+                        <TextBlock Text="Recently played" Style="{StaticResource IrisSectionTitleTextStyle}" VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                            <Button Style="{StaticResource IrisOutlineIconButtonStyle}" Tag="RecentScroller" Click="ScrollRowBack_Click"
+                                    ToolTipService.ToolTip="Scroll left" AutomationProperties.Name="Scroll left">
+                                <FontIcon Glyph="&#xE76B;" FontSize="12" />
+                            </Button>
+                            <Button Style="{StaticResource IrisOutlineIconButtonStyle}" Tag="RecentScroller" Click="ScrollRowForward_Click"
+                                    ToolTipService.ToolTip="Scroll right" AutomationProperties.Name="Scroll right">
+                                <FontIcon Glyph="&#xE76C;" FontSize="12" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                    <ScrollViewer x:Name="RecentScroller" Padding="48,0,40,0" HorizontalScrollMode="Enabled"
+                                  HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled"
+                                  VerticalScrollBarVisibility="Disabled">
+                        <ItemsRepeater x:Name="RecentItems" ItemTemplate="{StaticResource RowCardTemplate}"
+                                       ElementPrepared="RowItems_ElementPrepared">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Orientation="Horizontal" Spacing="4" />
+                            </ItemsRepeater.Layout>
+                        </ItemsRepeater>
+                    </ScrollViewer>
+                </StackPanel>
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

@@ -1,18 +1,21 @@
 using Iris_MediaPlayer.Models;
 using Iris_MediaPlayer.Services;
+using Iris_MediaPlayer.Views.Controls;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Runtime.InteropServices;
-using Windows.Globalization.NumberFormatting;
 using Windows.Storage.Pickers;
 using Windows.UI.Core;
 using VirtualKey = Windows.System.VirtualKey;
@@ -20,21 +23,36 @@ using VirtualKey = Windows.System.VirtualKey;
 namespace Iris_MediaPlayer.Views;
 
 /// <summary>
-/// In-app video player. Owns the mpv instance, the video surface, the play queue and every
-/// playback control. The window decides fullscreen and navigation; this view asks for them
-/// through events.
+/// The video player. Owns the mpv instance, the video surface, the play queue and every
+/// playback control: floating glass bars that hide while the video plays, a settings sheet,
+/// the Up next card and the mini player overlay. The window decides fullscreen, mini player
+/// and navigation; this view asks for them through events.
 /// </summary>
 public sealed partial class PlayerView : UserControl
 {
     private const int AutoplayCountdownSeconds = 5;
     private const double ProgressSaveIntervalSeconds = 5;
     private const double PreviousRestartThresholdSeconds = 5;
+    private const double SheetWidth = 384;
+    private const double DelayLimitSeconds = 30;
+
+    private const string PlayGlyph = "";
+    private const string PauseGlyph = "";
+    private const string VolumeGlyph = "";
+    private const string MutedGlyph = "";
+    private const string CheckGlyph = "";
+
+    private static readonly double[] Speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
+    private static readonly string[] SpeedLabels = ["0.5×", "0.75×", "1×", "1.25×", "1.5×", "2×"];
+    private static readonly VideoZoomMode[] ZoomModes = [VideoZoomMode.Fit, VideoZoomMode.Fill, VideoZoomMode.Stretch];
+    private static readonly TimeSpan SeekThrottle = TimeSpan.FromMilliseconds(90);
 
     private readonly DispatcherQueueTimer _controlsHideTimer;
     private readonly DispatcherQueueTimer _singleTapTimer;
     private readonly DispatcherQueueTimer _resumeBannerTimer;
     private readonly DispatcherQueueTimer _osdTimer;
     private readonly DispatcherQueueTimer _autoplayTimer;
+    private readonly DispatcherQueueTimer _posterTimer;
 
     private LibraryStore? _store;
     private MpvPlayback? _mpv;
@@ -53,22 +71,35 @@ public sealed partial class PlayerView : UserControl
     private bool _isMuted;
     private double _durationSeconds;
     private double _positionSeconds;
+    private double _bufferedSeconds;
     private double _lastSavedPosition;
+
+    // Tracks and per-file settings
+    private IReadOnlyList<MpvTrack> _audioTracks = [];
+    private IReadOnlyList<MpvTrack> _subtitleTracks = [];
+    private long _selectedAudioId = -1;
+    private long _selectedSubtitleId = -1;
+    private long _lastSubtitleId = -1;
+    private double _subtitleDelay;
+    private double _audioDelay;
 
     // UI state
     private bool _isInitializing = true;
-    private bool _isUpdatingSeek;
-    private bool _isSeeking;
-    private bool _isUpdatingTrackControls;
-    private bool _isUpdatingPlaybackSpeed;
     private bool _isUpdatingFileSettings;
     private bool _isFullscreen;
+    private bool _isMini;
+    private bool _isSheetOpen;
+    private bool _controlsVisible = true;
     private bool _isPointerOverBars;
+    private bool _isPointerInside;
     private bool _isCursorHidden;
-    private bool _isUpdatingZoom;
+    private bool _isDraggingSeek;
+    private double _dragPosition;
+    private DateTime _lastDragSeekUtc;
     private VideoZoomMode _zoomMode;
     private int _autoplaySecondsLeft;
     private DateTime _lastDoubleTapUtc;
+    private Storyboard? _ringStoryboard;
 
     public PlayerView()
     {
@@ -81,21 +112,25 @@ public sealed partial class PlayerView : UserControl
         _resumeBannerTimer = CreateTimer(dispatcher, TimeSpan.FromSeconds(8), (_, _) => HideResumeBanner());
         _osdTimer = CreateTimer(dispatcher, TimeSpan.FromSeconds(1.5), (_, _) => OsdBanner.Visibility = Visibility.Collapsed);
         _autoplayTimer = CreateTimer(dispatcher, TimeSpan.FromSeconds(1), AutoplayTimer_Tick, repeating: true);
+        _posterTimer = CreateTimer(dispatcher, TimeSpan.FromMilliseconds(350), (_, _) => Motion.Fade(PosterFrame, 0, Motion.Slow));
 
-        var delayFormatter = new DecimalFormatter
-        {
-            FractionDigits = 1,
-            IntegerDigits = 1,
-            IsGrouped = false,
-            NumberRounder = new IncrementNumberRounder { Increment = 0.1, RoundingAlgorithm = RoundingAlgorithm.RoundHalfUp }
-        };
-        AudioDelayBox.NumberFormatter = delayFormatter;
-        SubtitleDelayBox.NumberFormatter = delayFormatter;
+        ZoomSegments.Items = ["Fit", "Fill screen", "Stretch"];
+        SpeedSegments.Items = SpeedLabels;
+        SpeedSegments.SelectedIndex = Array.IndexOf(Speeds, 1d);
 
         VolumeSlider.Value = savedVolume;
         AutoplayToggle.IsOn = PlayerSettings.AutoplayNext;
         SetZoomMode(PlayerSettings.ZoomMode);
         _isInitializing = false;
+
+        Motion.SetOpacity(PulseBadge, 0);
+        Motion.SetScale(SeekKnob, 0);
+        MiniOverlay.PointerPressed += MiniSurface_PointerPressed;
+        SizeChanged += (_, e) =>
+        {
+            PlayerRoot.Clip = new RectangleGeometry { Rect = new Windows.Foundation.Rect(0, 0, e.NewSize.Width, e.NewSize.Height) };
+            UpdateSubtitlePosition();
+        };
 
         // Preview so player shortcuts win over focused buttons and sliders inside the player.
         PreviewKeyDown += Player_PreviewKeyDown;
@@ -106,6 +141,12 @@ public sealed partial class PlayerView : UserControl
 
     /// <summary>The user pressed F, double-clicked the video or used the fullscreen button.</summary>
     public event EventHandler? FullscreenToggleRequested;
+
+    /// <summary>The picture-in-picture button, I, or the mini player's expand button.</summary>
+    public event EventHandler? MiniPlayerToggleRequested;
+
+    /// <summary>The mini player's close button.</summary>
+    public event EventHandler? MiniPlayerCloseRequested;
 
     /// <summary>A different video started (next/previous, autoplay or a new request).</summary>
     public event EventHandler<MediaItem>? MediaChanged;
@@ -149,7 +190,7 @@ public sealed partial class PlayerView : UserControl
             _queue = queue;
         }
 
-        PlayQueueItem(index);
+        PlayQueueItem(index, fromCard: true);
     }
 
     /// <summary>Saves progress and stops playback. Called when leaving the player.</summary>
@@ -158,13 +199,20 @@ public sealed partial class PlayerView : UserControl
         SaveProgress();
         HideEndPanel();
         HideResumeBanner();
+        SetSheetOpen(false);
         _singleTapTimer.Stop();
+        _controlsHideTimer.Stop();
         _isFileLoaded = false;
         SetCursorHidden(false);
         TryMpv(mpv => mpv.Stop());
     }
 
-    public void ShowStatusMessage(string message) => PlaybackStatusText.Text = message;
+    public void ShowStatusMessage(string message)
+    {
+        PlaybackProgress.IsActive = false;
+        PlaybackStatusText.Text = message;
+        PlayerStatus.Visibility = Visibility.Visible;
+    }
 
     /// <summary>Loads an external subtitle file into the current video.</summary>
     public void AddSubtitle(string filePath)
@@ -187,34 +235,49 @@ public sealed partial class PlayerView : UserControl
         }
     }
 
-    /// <summary>Updates the fullscreen icon and auto-hiding controls. The window switches the presenter.</summary>
+    /// <summary>Updates the fullscreen icon. The window switches the presenter.</summary>
     public void SetFullscreen(bool enabled)
     {
         _isFullscreen = enabled;
-        FullscreenIcon.Glyph = enabled ? "" : "";
+        EnterFullscreenIcon.Visibility = enabled ? Visibility.Collapsed : Visibility.Visible;
+        ExitFullscreenIcon.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(FullscreenButton, enabled ? "Exit fullscreen (F)" : "Fullscreen (F)");
         ShowControlsTemporarily();
     }
 
-    /// <summary>
-    /// <paramref name="squareCorners"/>: drop the rounded frame (fullscreen, or a standalone window).
-    /// <paramref name="overlayBars"/>: let the video fill the whole view with the bars on top of it
-    /// (fullscreen, where they auto-hide); otherwise the video sits between the bars.
-    /// </summary>
-    public void ApplyFrameMode(bool squareCorners, bool overlayBars)
+    /// <summary>Switches between the full player and the small picture-in-picture overlay.</summary>
+    public void SetMiniMode(bool enabled)
     {
-        PlayerRoot.CornerRadius = squareCorners ? new CornerRadius(0) : new CornerRadius(15);
-        Grid.SetRow(VideoHost, overlayBars ? 0 : 1);
-        Grid.SetRowSpan(VideoHost, overlayBars ? 3 : 1);
-        PlayerHeaderBar.CornerRadius = squareCorners ? new CornerRadius(0) : new CornerRadius(15, 15, 0, 0);
-        PlayerControlsBar.CornerRadius = squareCorners ? new CornerRadius(0) : new CornerRadius(0, 0, 15, 15);
+        _isMini = enabled;
+        var full = enabled ? Visibility.Collapsed : Visibility.Visible;
+        PlayerHeaderBar.Visibility = full;
+        PlayerControlsBar.Visibility = full;
+        NoticeArea.Visibility = full;
+        Scrims.Visibility = full;
+        MiniOverlay.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+
+        UpdateSubtitlePosition();
+        if (enabled)
+        {
+            SetSheetOpen(false);
+            _controlsHideTimer.Stop();
+            SetCursorHidden(false);
+            UpdateMiniChrome(animate: false);
+            UpdateMiniProgress();
+        }
+        else
+        {
+            _controlsVisible = false;
+            ShowControlsTemporarily();
+        }
+        DispatcherQueue.TryEnqueue(() => Focus(FocusState.Programmatic));
     }
 
     /// <summary>Saves progress and releases mpv and the swap chain. Call once when the window closes.</summary>
     public void Shutdown()
     {
         SaveProgress();
-        foreach (var timer in new[] { _controlsHideTimer, _singleTapTimer, _resumeBannerTimer, _osdTimer, _autoplayTimer })
+        foreach (var timer in new[] { _controlsHideTimer, _singleTapTimer, _resumeBannerTimer, _osdTimer, _autoplayTimer, _posterTimer })
             timer.Stop();
         SetCursorHidden(false);
 
@@ -231,7 +294,7 @@ public sealed partial class PlayerView : UserControl
 
     // ---------- Queue ----------
 
-    private void PlayQueueItem(int index)
+    private void PlayQueueItem(int index, bool fromCard = false)
     {
         SaveProgress();
         HideEndPanel();
@@ -246,21 +309,23 @@ public sealed partial class PlayerView : UserControl
         _isPaused = true;
         _durationSeconds = 0;
         _positionSeconds = 0;
+        _bufferedSeconds = 0;
         _lastSavedPosition = 0;
 
         PlayerTitle.Text = _currentMedia.Title;
+        MiniTitle.Text = _currentMedia.Title;
+        UpdateDetails();
         MediaChanged?.Invoke(this, _currentMedia);
         PlaybackStatusText.Text = "Starting mpv…";
         PlaybackProgress.IsActive = true;
         PlayerStatus.Visibility = Visibility.Visible;
         PlayPauseButton.IsEnabled = false;
-        SeekSlider.IsEnabled = false;
         LoadSubtitleButton.IsEnabled = false;
-        CurrentTimeText.Text = FormatTime(0);
-        DurationText.Text = FormatTime(0);
-        SetSeekSliderValue(0);
+        SetPlayPauseGlyph(paused: true);
+        UpdateTimes();
         UpdateQueueControls();
         ResetPerFileSettings();
+        ShowPoster(_currentMedia, fromCard);
         ShowControlsTemporarily();
 
         if (_mpv is not null)
@@ -306,17 +371,76 @@ public sealed partial class PlayerView : UserControl
         PreviousButton.IsEnabled = HasPrevious || _isFileLoaded;
         NextButton.IsEnabled = HasNext;
         ToolTipService.SetToolTip(NextButton, NextMedia is { } next ? $"Next: {next.Title} (Shift+N)" : "Next (Shift+N)");
-        QueuePositionText.Text = _queue.Count > 1 ? $"{_queueIndex + 1} of {_queue.Count}" : string.Empty;
+        UpdateDetails();
+    }
+
+    /// <summary>"Folder · 3 of 12 · 4K" under the title.</summary>
+    private void UpdateDetails()
+    {
+        if (_currentMedia is null)
+        {
+            PlayerDetails.Text = string.Empty;
+            return;
+        }
+
+        var parts = new List<string> { _currentMedia.FolderName };
+        if (_queue.Count > 1)
+            parts.Add($"{_queueIndex + 1} of {_queue.Count}");
+        if (!string.IsNullOrEmpty(_currentMedia.QualityLabel))
+            parts.Add(_currentMedia.QualityLabel);
+        PlayerDetails.Text = string.Join("  ·  ", parts);
     }
 
     private void Previous_Click(object sender, RoutedEventArgs e) => PlayPrevious();
 
     private void Next_Click(object sender, RoutedEventArgs e) => PlayNext();
 
+    // ---------- Poster (card to player) ----------
+
+    private void ShowPoster(MediaItem media, bool fromCard)
+    {
+        _posterTimer.Stop();
+        if (media.Thumbnail is null)
+        {
+            PosterFrame.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        PosterImage.Source = media.Thumbnail;
+        PosterFrame.Visibility = Visibility.Visible;
+        Motion.SetOpacity(PosterFrame, 1);
+        SizePoster();
+
+        if (!fromCard)
+            return;
+        try
+        {
+            ConnectedAnimationService.GetForCurrentView().GetAnimation(MediaCard.PlayerAnimationKey)?.TryStart(PosterFrame);
+        }
+        catch (Exception)
+        {
+            // The animation is decoration; playback continues without it.
+        }
+    }
+
+    /// <summary>The poster is the largest 16:9 frame that fits, like the video will be.</summary>
+    private void SizePoster()
+    {
+        var width = VideoHost.ActualWidth;
+        var height = VideoHost.ActualHeight;
+        if (width <= 0 || height <= 0)
+            return;
+
+        var posterWidth = Math.Min(width, height * 16 / 9);
+        PosterFrame.Width = posterWidth;
+        PosterFrame.Height = posterWidth * 9 / 16;
+    }
+
     // ---------- mpv lifecycle ----------
 
     private void VideoHost_SizeChanged(object sender, SizeChangedEventArgs e)
     {
+        SizePoster();
         var scale = VideoPanel.XamlRoot?.RasterizationScale ?? 1.0;
         var width = Math.Max(1, (int)Math.Round(e.NewSize.Width * scale));
         var height = Math.Max(1, (int)Math.Round(e.NewSize.Height * scale));
@@ -360,9 +484,7 @@ public sealed partial class PlayerView : UserControl
         {
             _mpv?.Dispose();
             _mpv = null;
-            PlaybackProgress.IsActive = false;
-            PlaybackStatusText.Text = $"Could not start mpv: {exception.Message}";
-            PlayerStatus.Visibility = Visibility.Visible;
+            ShowStatusMessage($"Could not start mpv: {exception.Message}");
         }
     }
 
@@ -377,9 +499,7 @@ public sealed partial class PlayerView : UserControl
         }
         catch (Exception exception)
         {
-            PlaybackProgress.IsActive = false;
-            PlaybackStatusText.Text = $"Could not open this video: {exception.Message}";
-            PlayerStatus.Visibility = Visibility.Visible;
+            ShowStatusMessage($"Could not open this video: {exception.Message}");
         }
     }
 
@@ -398,22 +518,30 @@ public sealed partial class PlayerView : UserControl
                 break;
             case "time-pos" when value is double position:
                 _positionSeconds = position;
-                CurrentTimeText.Text = FormatTime(position);
-                if (!_isSeeking)
-                    SetSeekSliderValue(position);
+                UpdateTimes();
                 SaveProgressIfDue();
                 break;
             case "duration" when value is double duration:
                 _durationSeconds = Math.Max(0, duration);
-                DurationText.Text = FormatTime(_durationSeconds);
-                SeekSlider.IsEnabled = _isFileLoaded && _durationSeconds > 0;
-                SetSeekSliderMaximum(_durationSeconds);
+                UpdateTimes();
+                break;
+            case "demuxer-cache-duration" when value is double buffered:
+                _bufferedSeconds = Math.Max(0, buffered);
+                UpdateSeekVisuals();
                 break;
             case "pause" when value is bool paused:
                 _isPaused = paused;
-                PlayPauseIcon.Glyph = paused ? "" : "";
+                SetPlayPauseGlyph(paused);
                 if (paused)
+                {
                     SaveProgress();
+                    SetControlsVisible(true);
+                }
+                else
+                {
+                    ShowControlsTemporarily();
+                }
+                UpdateMiniChrome(animate: true);
                 break;
             case "eof-reached" when value is bool atEnd:
                 OnEndReachedChanged(atEnd);
@@ -423,16 +551,15 @@ public sealed partial class PlayerView : UserControl
                 break;
             case "mute" when value is bool muted:
                 _isMuted = muted;
-                MuteIcon.Glyph = muted ? "" : "";
+                MuteIcon.Glyph = muted ? MutedGlyph : VolumeGlyph;
                 break;
             case "speed" when value is double speed:
                 UpdatePlaybackSpeedSelection(speed);
                 break;
             case "playback-error" when value is int error:
-                PlaybackProgress.IsActive = false;
-                PlaybackStatusText.Text = $"mpv could not play this file (error {error}).";
-                PlayerStatus.Visibility = Visibility.Visible;
+                ShowStatusMessage($"mpv could not play this file (error {error}).");
                 PlayPauseButton.IsEnabled = false;
+                PosterFrame.Visibility = Visibility.Collapsed;
                 break;
         }
     }
@@ -440,6 +567,7 @@ public sealed partial class PlayerView : UserControl
     private void OnFileLoaded()
     {
         _isFileLoaded = true;
+        SyncPauseState();
         PlaybackProgress.IsActive = false;
         PlayerStatus.Visibility = Visibility.Collapsed;
         PlayPauseButton.IsEnabled = true;
@@ -447,9 +575,12 @@ public sealed partial class PlayerView : UserControl
         SeekForwardButton.IsEnabled = true;
         MuteButton.IsEnabled = true;
         LoadSubtitleButton.IsEnabled = true;
-        SeekSlider.IsEnabled = _durationSeconds > 0;
         RefreshTrackOptions();
         UpdateQueueControls();
+        _posterTimer.Stop();
+        _posterTimer.Start();
+        ShowControlsTemporarily();
+        UpdateSubtitlePosition();
 
         if (_currentMedia is not null)
             _store?.RecordRecent(_currentMedia);
@@ -479,6 +610,7 @@ public sealed partial class PlayerView : UserControl
     {
         ResumeBannerText.Text = $"Resumed from {FormatTime(_resumedFrom)}";
         ResumeBanner.Visibility = Visibility.Visible;
+        Motion.EnterFromBelow(ResumeBanner, TimeSpan.Zero, 16);
         _resumeBannerTimer.Stop();
         _resumeBannerTimer.Start();
     }
@@ -524,14 +656,10 @@ public sealed partial class PlayerView : UserControl
     private void ShowAutoplayCountdown()
     {
         _autoplaySecondsLeft = AutoplayCountdownSeconds;
-        EndPanelHeading.Text = "UP NEXT";
-        EndPanelTitle.Text = NextMedia!.Title;
-        UpdateCountdownText();
-        EndPanelCountdown.Visibility = Visibility.Visible;
-        EndPlayNextButton.Visibility = Visibility.Visible;
-        EndCancelButton.Visibility = Visibility.Visible;
-        EndReplayButton.Visibility = Visibility.Collapsed;
-        EndPanel.Visibility = Visibility.Visible;
+        ShowUpNextCard(NextMedia!, "UP NEXT", countdown: true);
+        UpNextPlayButton.Visibility = Visibility.Visible;
+        UpNextCancelButton.Visibility = Visibility.Visible;
+        UpNextReplayButton.Visibility = Visibility.Collapsed;
         _autoplayTimer.Stop();
         _autoplayTimer.Start();
     }
@@ -540,34 +668,55 @@ public sealed partial class PlayerView : UserControl
     {
         _autoplayTimer.Stop();
         var next = NextMedia;
-        EndPanelHeading.Text = next is null ? "FINISHED" : "UP NEXT";
-        EndPanelTitle.Text = next?.Title ?? _currentMedia?.Title ?? string.Empty;
-        EndPanelCountdown.Visibility = Visibility.Collapsed;
-        EndPlayNextButton.Visibility = next is null ? Visibility.Collapsed : Visibility.Visible;
-        EndCancelButton.Visibility = Visibility.Collapsed;
-        EndReplayButton.Visibility = Visibility.Visible;
-        EndPanel.Visibility = Visibility.Visible;
+        ShowUpNextCard(next ?? _currentMedia!, next is null ? "FINISHED" : "UP NEXT", countdown: false);
+        UpNextPlayButton.Visibility = next is null ? Visibility.Collapsed : Visibility.Visible;
+        UpNextCancelButton.Visibility = Visibility.Collapsed;
+        UpNextReplayButton.Visibility = Visibility.Visible;
+    }
+
+    private void ShowUpNextCard(MediaItem media, string heading, bool countdown)
+    {
+        var wasVisible = UpNextCard.Visibility == Visibility.Visible;
+        UpNextHeading.Text = heading;
+        UpNextTitle.Text = media.Title;
+        UpNextImage.Source = media.Thumbnail;
+        UpNextRing.Visibility = countdown ? Visibility.Visible : Visibility.Collapsed;
+        UpNextCard.Visibility = Visibility.Visible;
+        if (!wasVisible)
+            Motion.EnterFromBelow(UpNextCard, TimeSpan.Zero, 16);
+
+        _ringStoryboard?.Stop();
+        if (!countdown)
+            return;
+
+        // The ring empties over the countdown, like a timer running down.
+        var animation = new DoubleAnimation
+        {
+            From = 0,
+            To = UpNextRingStroke.StrokeDashArray.FirstOrDefault(),
+            Duration = TimeSpan.FromSeconds(AutoplayCountdownSeconds),
+            EnableDependentAnimation = true
+        };
+        Storyboard.SetTarget(animation, UpNextRingStroke);
+        Storyboard.SetTargetProperty(animation, "StrokeDashOffset");
+        _ringStoryboard = new Storyboard();
+        _ringStoryboard.Children.Add(animation);
+        _ringStoryboard.Begin();
     }
 
     private void HideEndPanel()
     {
         _autoplayTimer.Stop();
-        EndPanel.Visibility = Visibility.Collapsed;
+        _ringStoryboard?.Stop();
+        UpNextCard.Visibility = Visibility.Collapsed;
     }
 
     private void AutoplayTimer_Tick(DispatcherQueueTimer sender, object args)
     {
         _autoplaySecondsLeft--;
         if (_autoplaySecondsLeft <= 0)
-        {
             PlayNext();
-            return;
-        }
-        UpdateCountdownText();
     }
-
-    private void UpdateCountdownText()
-        => EndPanelCountdown.Text = $"Playing in {_autoplaySecondsLeft} second{(_autoplaySecondsLeft == 1 ? "" : "s")}";
 
     private void EndPlayNext_Click(object sender, RoutedEventArgs e) => PlayNext();
 
@@ -604,27 +753,25 @@ public sealed partial class PlayerView : UserControl
         try
         {
             _isPaused = _mpv.TogglePause();
-            PlayPauseIcon.Glyph = _isPaused ? "" : "";
+            SetPlayPauseGlyph(_isPaused);
+            // The pulse shows what just happened: the play symbol when playback resumes.
+            PulseIcon.Glyph = _isPaused ? PauseGlyph : PlayGlyph;
+            if (!_isMini)
+                Motion.Pulse(PulseBadge);
         }
         catch (Exception exception)
         {
-            PlaybackStatusText.Text = $"Could not toggle playback: {exception.Message}";
-            PlayerStatus.Visibility = Visibility.Visible;
+            ShowStatusMessage($"Could not toggle playback: {exception.Message}");
         }
     }
 
-    private void SetSeekSliderMaximum(double duration)
+    private void SetPlayPauseGlyph(bool paused)
     {
-        _isUpdatingSeek = true;
-        SeekSlider.Maximum = Math.Max(1, duration);
-        _isUpdatingSeek = false;
-    }
-
-    private void SetSeekSliderValue(double position)
-    {
-        _isUpdatingSeek = true;
-        SeekSlider.Value = Math.Clamp(position, SeekSlider.Minimum, SeekSlider.Maximum);
-        _isUpdatingSeek = false;
+        PlayPauseIcon.Glyph = paused ? PlayGlyph : PauseGlyph;
+        MiniPlayPauseIcon.Glyph = PlayPauseIcon.Glyph;
+        var label = paused ? "Play" : "Pause";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(PlayPauseButton, label);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(MiniPlayPauseButton, label);
     }
 
     private static string FormatTime(double seconds)
@@ -635,38 +782,133 @@ public sealed partial class PlayerView : UserControl
         return time.TotalHours >= 1 ? time.ToString(@"h\:mm\:ss") : time.ToString(@"m\:ss");
     }
 
-    private void SeekSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    private double DisplayedPosition => _isDraggingSeek ? _dragPosition : _positionSeconds;
+
+    private void UpdateTimes()
     {
-        if (!_isUpdatingSeek && !_isSeeking && _mpv is not null && _durationSeconds > 0)
-            TryMpv(mpv => mpv.Seek(e.NewValue));
+        var position = DisplayedPosition;
+        CurrentTimeText.Text = FormatTime(position);
+        RemainingTimeText.Text = "-" + FormatTime(Math.Max(0, _durationSeconds - position));
+        MiniElapsedText.Text = CurrentTimeText.Text;
+        MiniRemainingText.Text = RemainingTimeText.Text;
+        UpdateSeekVisuals();
+        UpdateMiniProgress();
     }
 
-    private void SeekSlider_PointerPressed(object sender, PointerRoutedEventArgs e) => _isSeeking = true;
-
-    private void SeekSlider_PointerReleased(object sender, PointerRoutedEventArgs e)
+    private void UpdateSeekVisuals()
     {
-        _isSeeking = false;
-        if (_mpv is not null && _durationSeconds > 0)
-            TryMpv(mpv => mpv.Seek(SeekSlider.Value));
-    }
-
-    private void SeekBarHost_PointerMoved(object sender, PointerRoutedEventArgs e)
-    {
-        if (!SeekSlider.IsEnabled || _durationSeconds <= 0 || SeekBarHost.ActualWidth <= 0)
+        var width = SeekTrack.ActualWidth;
+        if (width <= 0)
             return;
 
-        var pointerX = e.GetCurrentPoint(SeekBarHost).Position.X;
-        var progress = Math.Clamp(pointerX / SeekBarHost.ActualWidth, 0, 1);
-        SeekPreviewText.Text = FormatTime(progress * _durationSeconds);
-        SeekPreviewBadge.Visibility = Visibility.Visible;
-        var badgeWidth = SeekPreviewBadge.Width > 0 ? SeekPreviewBadge.Width : 52;
-        Canvas.SetLeft(
-            SeekPreviewBadge,
-            Math.Clamp(pointerX - badgeWidth / 2, 0, Math.Max(0, SeekBarHost.ActualWidth - badgeWidth)));
+        var played = _durationSeconds > 0 ? Math.Clamp(DisplayedPosition / _durationSeconds, 0, 1) : 0;
+        var buffered = _durationSeconds > 0 ? Math.Clamp((_positionSeconds + _bufferedSeconds) / _durationSeconds, 0, 1) : 0;
+        SeekPlayed.Width = width * played;
+        SeekBuffered.Width = width * Math.Max(played, buffered);
+        Canvas.SetLeft(SeekKnob, width * played - SeekKnob.Width / 2);
     }
 
-    private void SeekBarHost_PointerExited(object sender, PointerRoutedEventArgs e)
-        => SeekPreviewBadge.Visibility = Visibility.Collapsed;
+    private void UpdateMiniProgress()
+    {
+        if (!_isMini)
+            return;
+        var played = _durationSeconds > 0 ? Math.Clamp(_positionSeconds / _durationSeconds, 0, 1) : 0;
+        MiniProgressFill.Width = MiniProgressTrack.ActualWidth * played;
+    }
+
+    private void SeekTrack_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateSeekVisuals();
+
+    private double PositionAt(PointerRoutedEventArgs e)
+    {
+        var width = Math.Max(1, SeekTrack.ActualWidth);
+        var x = e.GetCurrentPoint(SeekTrack).Position.X;
+        return Math.Clamp(x / width, 0, 1) * _durationSeconds;
+    }
+
+    private bool CanSeek => _isFileLoaded && _durationSeconds > 0;
+
+    private void SeekTrack_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (!CanSeek)
+            return;
+        SeekRail.Height = 7;
+        Motion.Scale(SeekKnob, 1, Motion.Fast, decelerate: true);
+    }
+
+    private void SeekTrack_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (_isDraggingSeek)
+            return;
+        SeekRail.Height = 4;
+        Motion.Scale(SeekKnob, 0, Motion.Fast, decelerate: true);
+        SeekPreviewBadge.Visibility = Visibility.Collapsed;
+    }
+
+    private void SeekTrack_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!CanSeek)
+            return;
+
+        SeekTrack.CapturePointer(e.Pointer);
+        _isDraggingSeek = true;
+        _dragPosition = PositionAt(e);
+        UpdateTimes();
+        UpdateSeekPreview(e);
+        e.Handled = true;
+    }
+
+    private void SeekTrack_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!CanSeek)
+            return;
+
+        UpdateSeekPreview(e);
+        if (!_isDraggingSeek)
+            return;
+
+        _dragPosition = PositionAt(e);
+        UpdateTimes();
+        if (DateTime.UtcNow - _lastDragSeekUtc >= SeekThrottle)
+        {
+            _lastDragSeekUtc = DateTime.UtcNow;
+            var target = _dragPosition;
+            TryMpv(mpv => mpv.Seek(target));
+        }
+    }
+
+    private void SeekTrack_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isDraggingSeek)
+            return;
+
+        _dragPosition = PositionAt(e);
+        var target = _dragPosition;
+        _positionSeconds = target;
+        _isDraggingSeek = false;
+        SeekTrack.ReleasePointerCapture(e.Pointer);
+        TryMpv(mpv => mpv.Seek(target));
+        UpdateTimes();
+        e.Handled = true;
+    }
+
+    private void SeekTrack_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isDraggingSeek)
+            return;
+        _isDraggingSeek = false;
+        UpdateTimes();
+    }
+
+    private void UpdateSeekPreview(PointerRoutedEventArgs e)
+    {
+        var width = SeekTrack.ActualWidth;
+        var x = Math.Clamp(e.GetCurrentPoint(SeekTrack).Position.X, 0, width);
+        SeekPreviewText.Text = FormatTime(width > 0 ? x / width * _durationSeconds : 0);
+        SeekPreviewBadge.Visibility = Visibility.Visible;
+        SeekPreviewBadge.UpdateLayout();
+        var badgeWidth = SeekPreviewBadge.ActualWidth > 0 ? SeekPreviewBadge.ActualWidth : 52;
+        Canvas.SetLeft(SeekPreviewBadge, Math.Clamp(x - badgeWidth / 2, 0, Math.Max(0, width - badgeWidth)));
+    }
 
     private void SeekBackward_Click(object sender, RoutedEventArgs e) => SeekBy(-10);
 
@@ -674,11 +916,12 @@ public sealed partial class PlayerView : UserControl
 
     private void SeekBy(double seconds)
     {
-        if (_mpv is null || !_isFileLoaded || _durationSeconds <= 0)
+        if (_mpv is null || !CanSeek)
             return;
 
-        var position = Math.Clamp(SeekSlider.Value + seconds, 0, _durationSeconds);
-        SetSeekSliderValue(position);
+        var position = Math.Clamp(_positionSeconds + seconds, 0, _durationSeconds);
+        _positionSeconds = position;
+        UpdateTimes();
         TryMpv(mpv => mpv.Seek(position));
     }
 
@@ -707,16 +950,61 @@ public sealed partial class PlayerView : UserControl
         ShowOsd(_isMuted ? "Unmuted" : "Muted");
     }
 
-    // ---------- Settings flyout: tracks, delays, speed, aspect, autoplay ----------
+    // ---------- Settings sheet ----------
+
+    private void SettingsToggle_Click(object sender, RoutedEventArgs e) => SetSheetOpen(!_isSheetOpen);
+
+    private void CloseSettings_Click(object sender, RoutedEventArgs e)
+    {
+        SetSheetOpen(false);
+        Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>Slides the settings sheet in or out (333 ms, decelerate).</summary>
+    private void SetSheetOpen(bool open)
+    {
+        SettingsToggle.IsChecked = open;
+        if (_isSheetOpen == open)
+            return;
+
+        _isSheetOpen = open;
+        var hidden = new Vector3((float)(SheetWidth * 1.04), 0, 0);
+        if (open)
+        {
+            if (SettingsSheet.Visibility != Visibility.Visible)
+            {
+                SettingsSheet.Visibility = Visibility.Visible;
+                Motion.SetTranslation(SettingsSheet, hidden);
+            }
+            SettingsSheet.IsHitTestVisible = true;
+            Motion.Translate(SettingsSheet, Vector3.Zero, Motion.Slow);
+            SetControlsVisible(true);
+        }
+        else
+        {
+            SettingsSheet.IsHitTestVisible = false;
+            _isPointerOverBars = false;
+            if (SettingsSheet.Visibility == Visibility.Visible)
+                Motion.Translate(SettingsSheet, hidden, Motion.Slow);
+            ShowControlsTemporarily();
+        }
+    }
 
     private void ResetPerFileSettings()
     {
         _isUpdatingFileSettings = true;
-        AudioDelayBox.Value = 0;
-        SubtitleDelayBox.Value = 0;
         AspectRatioCombo.SelectedIndex = 0;
         CropCombo.SelectedIndex = 0;
         _isUpdatingFileSettings = false;
+        _audioDelay = 0;
+        _subtitleDelay = 0;
+        _audioTracks = [];
+        _subtitleTracks = [];
+        _selectedAudioId = -1;
+        _selectedSubtitleId = -1;
+        _lastSubtitleId = -1;
+        UpdateDelayTexts();
+        BuildTrackRows();
 
         TryMpv(mpv =>
         {
@@ -735,23 +1023,14 @@ public sealed partial class PlayerView : UserControl
         if (!_isInitializing)
             PlayerSettings.ZoomMode = mode;
 
-        _isUpdatingZoom = true;
-        ZoomModeCombo.SelectedItem = ZoomModeCombo.Items.OfType<ComboBoxItem>()
-            .FirstOrDefault(item => Equals(item.Tag, mode.ToString()));
-        _isUpdatingZoom = false;
-
+        ZoomSegments.SelectedIndex = Array.IndexOf(ZoomModes, mode);
         ToolTipService.SetToolTip(ZoomButton, $"Zoom: {GetZoomLabel(mode)} (C)");
         TryMpv(mpv => mpv.SetZoomMode(mode));
     }
 
     private void CycleZoomMode()
     {
-        var next = _zoomMode switch
-        {
-            VideoZoomMode.Fit => VideoZoomMode.Fill,
-            VideoZoomMode.Fill => VideoZoomMode.Stretch,
-            _ => VideoZoomMode.Fit
-        };
+        var next = ZoomModes[(Array.IndexOf(ZoomModes, _zoomMode) + 1) % ZoomModes.Length];
         SetZoomMode(next);
         ShowOsd($"Zoom: {GetZoomLabel(next)}");
     }
@@ -765,13 +1044,36 @@ public sealed partial class PlayerView : UserControl
 
     private void ZoomButton_Click(object sender, RoutedEventArgs e) => CycleZoomMode();
 
-    private void ZoomModeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void ZoomSegments_SelectionChanged(object? sender, int index)
     {
-        if (_isInitializing || _isUpdatingZoom
-            || ZoomModeCombo.SelectedItem is not ComboBoxItem { Tag: string tag }
-            || !Enum.TryParse<VideoZoomMode>(tag, out var mode))
-            return;
-        SetZoomMode(mode);
+        if (index >= 0 && index < ZoomModes.Length)
+            SetZoomMode(ZoomModes[index]);
+    }
+
+    private void SpeedSegments_SelectionChanged(object? sender, int index)
+    {
+        if (index >= 0 && index < Speeds.Length)
+        {
+            var speed = Speeds[index];
+            TryMpv(mpv => mpv.SetSpeed(speed));
+            UpdateSpeedLabel(speed);
+        }
+    }
+
+    private void UpdatePlaybackSpeedSelection(double speed)
+    {
+        var index = Array.FindIndex(Speeds, option => Math.Abs(option - speed) < 0.001);
+        if (index >= 0)
+            SpeedSegments.SelectedIndex = index;
+        UpdateSpeedLabel(speed);
+    }
+
+    /// <summary>The bar shows the speed only when it isn't normal.</summary>
+    private void UpdateSpeedLabel(double speed)
+    {
+        var isNormal = Math.Abs(speed - 1) < 0.001;
+        SpeedLabel.Text = $"{speed.ToString("0.##", CultureInfo.CurrentCulture)}×";
+        SpeedLabel.Visibility = isNormal ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void CropCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -782,33 +1084,6 @@ public sealed partial class PlayerView : UserControl
         TryMpv(mpv => mpv.SetCropRatio(ratio > 0 ? ratio : null));
     }
 
-    private void PlaybackSpeedCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_isUpdatingPlaybackSpeed || _mpv is null || PlaybackSpeedCombo.SelectedItem is not ComboBoxItem item)
-            return;
-
-        if (double.TryParse(item.Tag?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var speed))
-            TryMpv(mpv => mpv.SetSpeed(speed));
-    }
-
-    private void UpdatePlaybackSpeedSelection(double speed)
-    {
-        var closestItem = PlaybackSpeedCombo.Items
-            .OfType<ComboBoxItem>()
-            .Select(item => (Item: item, Parsed: double.TryParse(item.Tag?.ToString(), NumberStyles.Float,
-                CultureInfo.InvariantCulture, out var parsed) ? parsed : double.NaN))
-            .Where(option => double.IsFinite(option.Parsed))
-            .OrderBy(option => Math.Abs(option.Parsed - speed))
-            .FirstOrDefault();
-
-        if (closestItem.Item is null || Math.Abs(closestItem.Parsed - speed) > 0.001)
-            return;
-
-        _isUpdatingPlaybackSpeed = true;
-        PlaybackSpeedCombo.SelectedItem = closestItem.Item;
-        _isUpdatingPlaybackSpeed = false;
-    }
-
     private void AspectRatioCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isUpdatingFileSettings || AspectRatioCombo.SelectedItem is not ComboBoxItem { Tag: string aspect })
@@ -816,31 +1091,46 @@ public sealed partial class PlayerView : UserControl
         TryMpv(mpv => mpv.SetAspectOverride(aspect));
     }
 
-    private void AudioDelayBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
-    {
-        if (_isUpdatingFileSettings)
-            return;
-        var delay = double.IsFinite(args.NewValue) ? args.NewValue : 0;
-        TryMpv(mpv => mpv.SetAudioDelay(delay));
-    }
+    private void SubtitleDelayDown_Click(object sender, RoutedEventArgs e) => AdjustSubtitleDelay(-0.1, showOsd: false);
 
-    private void SubtitleDelayBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
-    {
-        if (_isUpdatingFileSettings)
-            return;
-        var delay = double.IsFinite(args.NewValue) ? args.NewValue : 0;
-        TryMpv(mpv => mpv.SetSubtitleDelay(delay));
-    }
+    private void SubtitleDelayUp_Click(object sender, RoutedEventArgs e) => AdjustSubtitleDelay(0.1, showOsd: false);
 
-    private void AdjustSubtitleDelay(double delta)
+    private void AudioDelayDown_Click(object sender, RoutedEventArgs e) => AdjustAudioDelay(-0.1);
+
+    private void AudioDelayUp_Click(object sender, RoutedEventArgs e) => AdjustAudioDelay(0.1);
+
+    private void AdjustSubtitleDelay(double delta, bool showOsd = true)
     {
         if (!_isFileLoaded)
             return;
 
-        var current = double.IsFinite(SubtitleDelayBox.Value) ? SubtitleDelayBox.Value : 0;
-        SubtitleDelayBox.Value = Math.Clamp(Math.Round(current + delta, 1), SubtitleDelayBox.Minimum, SubtitleDelayBox.Maximum);
-        ShowOsd($"Subtitle delay {SubtitleDelayBox.Value:+0.0;-0.0;0.0} s");
+        _subtitleDelay = Math.Clamp(Math.Round(_subtitleDelay + delta, 1), -DelayLimitSeconds, DelayLimitSeconds);
+        var delay = _subtitleDelay;
+        TryMpv(mpv => mpv.SetSubtitleDelay(delay));
+        UpdateDelayTexts();
+        if (showOsd)
+            ShowOsd($"Subtitle delay {FormatDelay(delay)}");
     }
+
+    private void AdjustAudioDelay(double delta)
+    {
+        if (!_isFileLoaded)
+            return;
+
+        _audioDelay = Math.Clamp(Math.Round(_audioDelay + delta, 1), -DelayLimitSeconds, DelayLimitSeconds);
+        var delay = _audioDelay;
+        TryMpv(mpv => mpv.SetAudioDelay(delay));
+        UpdateDelayTexts();
+    }
+
+    private void UpdateDelayTexts()
+    {
+        SubtitleDelayText.Text = FormatDelay(_subtitleDelay);
+        AudioDelayText.Text = FormatDelay(_audioDelay);
+    }
+
+    private static string FormatDelay(double seconds)
+        => $"{seconds.ToString("+0.0;-0.0;0.0", CultureInfo.CurrentCulture)} s";
 
     private void AutoplayToggle_Toggled(object sender, RoutedEventArgs e)
     {
@@ -850,7 +1140,6 @@ public sealed partial class PlayerView : UserControl
 
     private async void LoadSubtitle_Click(object sender, RoutedEventArgs e)
     {
-        PlayerSettingsFlyout.Hide();
         if (XamlRoot?.ContentIslandEnvironment is not { } environment)
             return;
 
@@ -866,61 +1155,176 @@ public sealed partial class PlayerView : UserControl
         Focus(FocusState.Programmatic);
     }
 
+    // ---------- Tracks ----------
+
     private void RefreshTrackOptions()
     {
         if (_mpv is null)
             return;
 
-        _isUpdatingTrackControls = true;
-        var audioTracks = _mpv.GetTracks("audio");
-        AudioTrackCombo.Items.Clear();
-        foreach (var track in audioTracks)
-            AudioTrackCombo.Items.Add(new ComboBoxItem { Content = track.DisplayName, Tag = track.Id });
-        AudioTrackCombo.SelectedItem = audioTracks.Select((track, index) => (track, index))
-            .Where(item => item.track.IsSelected)
-            .Select(item => AudioTrackCombo.Items[item.index])
-            .FirstOrDefault();
-        AudioTrackCombo.IsEnabled = audioTracks.Count > 0;
-
-        var subtitleTracks = _mpv.GetTracks("sub");
-        SubtitleTrackCombo.Items.Clear();
-        SubtitleTrackCombo.Items.Add(new ComboBoxItem { Content = "Off", Tag = -1L });
-        foreach (var track in subtitleTracks)
-            SubtitleTrackCombo.Items.Add(new ComboBoxItem { Content = track.DisplayName, Tag = track.Id });
-        var selectedSubtitle = subtitleTracks.FirstOrDefault(track => track.IsSelected);
-        SubtitleTrackCombo.SelectedItem = selectedSubtitle is null
-            ? SubtitleTrackCombo.Items[0]
-            : SubtitleTrackCombo.Items.OfType<ComboBoxItem>().FirstOrDefault(item => Equals(item.Tag, selectedSubtitle.Id));
-        SubtitleTrackCombo.IsEnabled = subtitleTracks.Count > 0;
-        _isUpdatingTrackControls = false;
+        _audioTracks = _mpv.GetTracks("audio");
+        _subtitleTracks = _mpv.GetTracks("sub");
+        _selectedAudioId = _audioTracks.FirstOrDefault(track => track.IsSelected)?.Id ?? -1;
+        _selectedSubtitleId = _subtitleTracks.FirstOrDefault(track => track.IsSelected)?.Id ?? -1;
+        if (_selectedSubtitleId >= 0)
+            _lastSubtitleId = _selectedSubtitleId;
+        BuildTrackRows();
     }
 
-    private void AudioTrackCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void BuildTrackRows()
     {
-        if (_isUpdatingTrackControls || _mpv is null || AudioTrackCombo.SelectedItem is not ComboBoxItem item
-            || item.Tag is not long trackId)
-            return;
-        TryMpv(mpv => mpv.SetAudioTrack(trackId));
+        SubtitleRows.Children.Clear();
+        SubtitleRows.Children.Add(CreateSheetRow("Off", _selectedSubtitleId < 0, () => SelectSubtitle(-1)));
+        foreach (var track in _subtitleTracks)
+        {
+            var id = track.Id;
+            SubtitleRows.Children.Add(CreateSheetRow(track.DisplayName, id == _selectedSubtitleId, () => SelectSubtitle(id)));
+        }
+
+        AudioRows.Children.Clear();
+        if (_audioTracks.Count == 0)
+        {
+            AudioRows.Children.Add(new TextBlock
+            {
+                Text = _isFileLoaded ? "No audio tracks" : "Audio tracks appear when the video starts",
+                Margin = new Thickness(12, 8, 12, 8),
+                Style = (Style)Application.Current.Resources["IrisCaptionTextStyle"]
+            });
+        }
+        foreach (var track in _audioTracks)
+        {
+            var id = track.Id;
+            AudioRows.Children.Add(CreateSheetRow(track.DisplayName, id == _selectedAudioId, () => SelectAudio(id)));
+        }
+
+        SubtitlesToggle.IsEnabled = _subtitleTracks.Count > 0;
+        SubtitlesToggle.IsChecked = _selectedSubtitleId >= 0;
+        var subtitleIconBrush = (Brush)Application.Current.Resources[_selectedSubtitleId >= 0 ? "IrisAccentLightBrush" : "IrisPlayerIconBrush"];
+        SubtitlesIconFrame.Stroke = subtitleIconBrush;
+        SubtitlesIconText.Stroke = subtitleIconBrush;
     }
 
-    private void SubtitleTrackCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private Button CreateSheetRow(string text, bool isSelected, Action select)
     {
-        if (_isUpdatingTrackControls || _mpv is null || SubtitleTrackCombo.SelectedItem is not ComboBoxItem item
-            || item.Tag is not long trackId)
-            return;
+        var content = new Grid();
+        content.Children.Add(new TextBlock
+        {
+            Text = text,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 0, 24, 0)
+        });
+        if (isSelected)
+        {
+            content.Children.Add(new FontIcon
+            {
+                Glyph = CheckGlyph,
+                FontSize = 14,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Foreground = (Brush)Application.Current.Resources["IrisAccentLightBrush"]
+            });
+        }
+
+        var row = new Button
+        {
+            Style = (Style)Application.Current.Resources["IrisSheetRowButtonStyle"],
+            Content = content
+        };
+        if (isSelected)
+        {
+            row.Background = (Brush)Application.Current.Resources["IrisAccentSoftBrush"];
+            row.Foreground = (Brush)Application.Current.Resources["IrisTextBrush"];
+        }
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(row, isSelected ? $"{text}, selected" : text);
+        row.Click += (_, _) => select();
+        return row;
+    }
+
+    private void SelectSubtitle(long trackId)
+    {
         TryMpv(mpv => mpv.SetSubtitleTrack(trackId));
+        _selectedSubtitleId = trackId;
+        if (trackId >= 0)
+            _lastSubtitleId = trackId;
+        BuildTrackRows();
     }
 
-    // ---------- Mouse, keyboard and auto-hiding controls ----------
+    private void SelectAudio(long trackId)
+    {
+        TryMpv(mpv => mpv.SetAudioTrack(trackId));
+        _selectedAudioId = trackId;
+        BuildTrackRows();
+    }
+
+    private void SubtitlesToggle_Click(object sender, RoutedEventArgs e) => ToggleSubtitles();
+
+    /// <summary>Turns subtitles off, or back on with the last track used (or the first one).</summary>
+    private void ToggleSubtitles()
+    {
+        if (_subtitleTracks.Count == 0)
+        {
+            SubtitlesToggle.IsChecked = false;
+            return;
+        }
+
+        if (_selectedSubtitleId >= 0)
+        {
+            SelectSubtitle(-1);
+            ShowOsd("Subtitles off");
+            return;
+        }
+
+        var track = _subtitleTracks.FirstOrDefault(item => item.Id == _lastSubtitleId) ?? _subtitleTracks[0];
+        SelectSubtitle(track.Id);
+        ShowOsd($"Subtitles: {track.DisplayName}");
+    }
+
+    // ---------- Top bar ----------
 
     private void Back_Click(object sender, RoutedEventArgs e) => BackRequested?.Invoke(this, EventArgs.Empty);
 
     private void FullscreenButton_Click(object sender, RoutedEventArgs e)
         => FullscreenToggleRequested?.Invoke(this, EventArgs.Empty);
 
+    private void MiniPlayer_Click(object sender, RoutedEventArgs e) => MiniPlayerToggleRequested?.Invoke(this, EventArgs.Empty);
+
+    private void MiniClose_Click(object sender, RoutedEventArgs e) => MiniPlayerCloseRequested?.Invoke(this, EventArgs.Empty);
+
+    private void More_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new MenuFlyout();
+        if (_currentMedia is { } media)
+        {
+            menu.Items.Add(CreateMenuItem("Show in File Explorer", "", async () =>
+                await Windows.System.Launcher.LaunchFolderPathAsync(media.FolderPath)));
+        }
+        menu.Items.Add(CreateMenuItem("Load subtitle file…", "", () => LoadSubtitle_Click(this, new RoutedEventArgs())));
+        menu.Items.Add(CreateMenuItem("Playback settings", "", () => SetSheetOpen(true)));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(CreateMenuItem("Mini player", "", () => MiniPlayerToggleRequested?.Invoke(this, EventArgs.Empty)));
+        menu.ShowAt(MoreButton, new FlyoutShowOptions { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight });
+    }
+
+    private static MenuFlyoutItem CreateMenuItem(string text, string glyph, Action action)
+    {
+        var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph } };
+        item.Click += (_, _) => action();
+        return item;
+    }
+
+    // ---------- Mouse, keyboard and auto-hiding controls ----------
+
     private void VideoHost_Tapped(object sender, TappedRoutedEventArgs e)
     {
         Focus(FocusState.Programmatic);
+
+        // With the sheet open, a click on the video just closes it.
+        if (_isSheetOpen)
+        {
+            SetSheetOpen(false);
+            return;
+        }
+
         // A double-click raises Tapped as well; ignore taps that belong to one.
         if ((DateTime.UtcNow - _lastDoubleTapUtc).TotalMilliseconds < 400)
             return;
@@ -934,12 +1338,36 @@ public sealed partial class PlayerView : UserControl
     {
         _singleTapTimer.Stop();
         _lastDoubleTapUtc = DateTime.UtcNow;
-        FullscreenToggleRequested?.Invoke(this, EventArgs.Empty);
+        if (!_isMini)
+            FullscreenToggleRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void VideoHost_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (_isMini)
+            MiniSurface_PointerPressed(sender, e);
+    }
+
+    /// <summary>The mini player has no title bar, so dragging anywhere on it moves the window.</summary>
+    private void MiniSurface_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isMini || e.Handled || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
+            || XamlRoot?.ContentIslandEnvironment is not { } environment)
+            return;
+
+        var hwnd = Microsoft.UI.Win32Interop.GetWindowFromWindowId(environment.AppWindowId);
+        ReleaseCapture();
+        SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, IntPtr.Zero);
+        e.Handled = true;
     }
 
     private void Player_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (Visibility != Visibility.Visible || IsModifierDown(VirtualKey.Control) || IsModifierDown(VirtualKey.Menu))
+            return;
+
+        // Let text and list controls in the sheet keep their own keys.
+        if (_isSheetOpen && e.OriginalSource is ComboBox or ComboBoxItem)
             return;
 
         e.Handled = HandlePlayerKey(e.Key, IsModifierDown(VirtualKey.Shift));
@@ -978,13 +1406,24 @@ public sealed partial class PlayerView : UserControl
             case VirtualKey.M:
                 ToggleMute();
                 break;
+            case VirtualKey.V:
+                ToggleSubtitles();
+                break;
+            case VirtualKey.I:
+                MiniPlayerToggleRequested?.Invoke(this, EventArgs.Empty);
+                break;
             case VirtualKey.F:
             case VirtualKey.F11:
-                FullscreenToggleRequested?.Invoke(this, EventArgs.Empty);
+                if (!_isMini)
+                    FullscreenToggleRequested?.Invoke(this, EventArgs.Empty);
                 break;
             case VirtualKey.Escape:
-                // Escape leaves fullscreen first, then (inside the library) leaves the player.
-                if (_isFullscreen)
+                // Escape closes the sheet, then leaves mini player or fullscreen, then (inside the library) the player.
+                if (_isSheetOpen)
+                    SetSheetOpen(false);
+                else if (_isMini)
+                    MiniPlayerToggleRequested?.Invoke(this, EventArgs.Empty);
+                else if (_isFullscreen)
                     FullscreenToggleRequested?.Invoke(this, EventArgs.Empty);
                 else if (!_isStandalone)
                     BackRequested?.Invoke(this, EventArgs.Empty);
@@ -1017,71 +1456,169 @@ public sealed partial class PlayerView : UserControl
 
     private void Player_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (_isFullscreen && Visibility == Visibility.Visible)
-            ShowControlsTemporarily();
+        if (Visibility != Visibility.Visible)
+            return;
+        if (_isMini)
+        {
+            if (!_isPointerInside)
+            {
+                _isPointerInside = true;
+                UpdateMiniChrome(animate: true);
+            }
+            return;
+        }
+        ShowControlsTemporarily();
+    }
+
+    private void Player_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        _isPointerInside = true;
+        if (_isMini)
+            UpdateMiniChrome(animate: true);
+    }
+
+    private void Player_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        // Exits from child elements bubble up here too; only react when the pointer really left.
+        if (PointerHelper.IsInside(PlayerRoot, e))
+            return;
+        _isPointerInside = false;
+        // The hidden cursor is per thread, so give it back as soon as the pointer leaves the video.
+        SetCursorHidden(false);
+        if (_isMini)
+            UpdateMiniChrome(animate: true);
     }
 
     private void Bars_PointerEntered(object sender, PointerRoutedEventArgs e) => _isPointerOverBars = true;
 
-    private void Bars_PointerExited(object sender, PointerRoutedEventArgs e) => _isPointerOverBars = false;
+    private void Bars_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement bar && !PointerHelper.IsInside(bar, e))
+            _isPointerOverBars = false;
+    }
 
-    /// <summary>Shows the bars; in fullscreen they hide again after a few idle seconds.</summary>
+    /// <summary>Shows the bars; while the video plays they hide again after a few idle seconds.</summary>
     private void ShowControlsTemporarily()
     {
+        if (_isMini)
+            return;
         SetControlsVisible(true);
         _controlsHideTimer.Stop();
-        if (_isFullscreen)
-            _controlsHideTimer.Start();
+        _controlsHideTimer.Start();
+    }
+
+    /// <summary>Reads the real pause state from mpv (see <see cref="MpvPlayback.IsPaused"/>).</summary>
+    private void SyncPauseState()
+    {
+        if (_mpv is null)
+            return;
+        try
+        {
+            _isPaused = _mpv.IsPaused;
+            SetPlayPauseGlyph(_isPaused);
+        }
+        catch (ObjectDisposedException) { }
     }
 
     private void ControlsHideTimer_Tick(DispatcherQueueTimer sender, object args)
     {
-        // Keep the controls up while the user is using them or the video has ended.
-        if (!_isFullscreen || _isPointerOverBars || PlayerSettingsFlyout.IsOpen || EndPanel.Visibility == Visibility.Visible)
+        SyncPauseState();
+        // Keep the controls up while the user is using them, the video is paused or has ended.
+        if (_isMini || _isPointerOverBars || _isSheetOpen || _isDraggingSeek || _isPaused || !_isFileLoaded
+            || UpNextCard.Visibility == Visibility.Visible)
             return;
         SetControlsVisible(false);
     }
 
+    /// <summary>Fades the bars and scrims and slides the bars 10 px (333 ms).</summary>
     private void SetControlsVisible(bool visible)
     {
-        var opacity = visible ? 1d : 0d;
-        PlayerHeaderBar.Opacity = opacity;
-        PlayerControlsBar.Opacity = opacity;
+        if (_controlsVisible == visible)
+            return;
+        _controlsVisible = visible;
+
+        var opacity = visible ? 1f : 0f;
+        Motion.Fade(PlayerHeaderBar, opacity, Motion.Slow);
+        Motion.Fade(PlayerControlsBar, opacity, Motion.Slow);
+        Motion.Fade(Scrims, opacity, Motion.Slow);
+        Motion.Translate(PlayerHeaderBar, new Vector3(0, visible ? 0 : -10, 0), Motion.Slow);
+        Motion.Translate(PlayerControlsBar, new Vector3(0, visible ? 0 : 10, 0), Motion.Slow);
         PlayerHeaderBar.IsHitTestVisible = visible;
         PlayerControlsBar.IsHitTestVisible = visible;
+        UpdateSubtitlePosition();
         if (!visible)
             _isPointerOverBars = false;
-        SetCursorHidden(!visible && _isFullscreen);
+        SetCursorHidden(!visible && _isPointerInside);
+    }
+
+    /// <summary>
+    /// Lifts subtitles above the controls while they show, and drops them back to the bottom when
+    /// the controls hide (and in the mini player, whose controls are an overlay).
+    /// </summary>
+    private void UpdateSubtitlePosition()
+    {
+        if (_mpv is null || !_isFileLoaded)
+            return;
+
+        var height = PlayerRoot.ActualHeight;
+        var percent = 100d;
+        if (_controlsVisible && !_isMini && height > 0)
+        {
+            var covered = PlayerControlsBar.ActualHeight + PlayerControlsBar.Margin.Bottom + 8;
+            percent = 100 * (1 - covered / height);
+        }
+
+        try
+        {
+            _mpv.SetSubtitlePosition(percent);
+        }
+        catch (Exception)
+        {
+            // Older mpv builds may reject the value; subtitles then just stay where they are.
+        }
+    }
+
+    /// <summary>The mini player's controls show while the pointer is over it or the video is paused.</summary>
+    private void UpdateMiniChrome(bool animate)
+    {
+        if (!_isMini)
+            return;
+
+        var show = _isPointerInside || _isPaused;
+        if (animate)
+            Motion.Fade(MiniChrome, show ? 1 : 0, Motion.Normal);
+        else
+            Motion.SetOpacity(MiniChrome, show ? 1 : 0);
+        MiniProgressTrack.Height = _isPointerInside ? 5 : 3;
+        UpdateMiniProgress();
     }
 
     private void ShowOsd(string message)
     {
         OsdText.Text = message;
-        OsdBanner.Visibility = Visibility.Visible;
+        OsdBanner.Visibility = _isMini ? Visibility.Collapsed : Visibility.Visible;
         _osdTimer.Stop();
         _osdTimer.Start();
     }
 
     private void PlayerControlsBar_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var width = Math.Min(e.NewSize.Width, PlayerControlsBar.ActualWidth);
+        var width = e.NewSize.Width;
+        UpdateSubtitlePosition();
 
-        // Progressively drop the least important controls so the seek bar always keeps room.
+        // Progressively drop the least important controls so the seek bar and play button keep room.
         VolumeSlider.Visibility = width < 820 ? Visibility.Collapsed : Visibility.Visible;
 
-        var narrow = width < 620;
-        var seekButtonsVisibility = narrow ? Visibility.Collapsed : Visibility.Visible;
-        SeekBackwardButton.Visibility = seekButtonsVisibility;
-        SeekForwardButton.Visibility = seekButtonsVisibility;
+        var narrow = width < 640 ? Visibility.Collapsed : Visibility.Visible;
+        SeekBackwardButton.Visibility = narrow;
+        SeekForwardButton.Visibility = narrow;
+        SeekDivider.Visibility = narrow;
+        ZoomButton.Visibility = narrow;
 
-        var tiny = width < 460;
-        TimeSeparatorText.Visibility = tiny ? Visibility.Collapsed : Visibility.Visible;
-        DurationText.Visibility = tiny ? Visibility.Collapsed : Visibility.Visible;
-        TimeGroup.MinWidth = tiny ? 40 : 104;
-        PreviousButton.Visibility = tiny ? Visibility.Collapsed : Visibility.Visible;
-
-        PlayerControlsBar.Padding = narrow ? new Thickness(8, 6, 8, 6) : new Thickness(12, 6, 12, 6);
-        ControlsRow.ColumnSpacing = narrow ? 8 : 12;
+        var tiny = width < 480 ? Visibility.Collapsed : Visibility.Visible;
+        PreviousButton.Visibility = tiny;
+        VolumeDivider.Visibility = tiny;
+        RemainingTimeText.Visibility = tiny;
     }
 
     // ---------- Helpers ----------
@@ -1125,6 +1662,16 @@ public sealed partial class PlayerView : UserControl
         ShowCursor(!hidden);
     }
 
+    private const uint WM_NCLBUTTONDOWN = 0x00A1;
+    private static readonly IntPtr HTCAPTION = new(2);
+
     [DllImport("user32.dll")]
     private static extern int ShowCursor([MarshalAs(UnmanagedType.Bool)] bool show);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
 }

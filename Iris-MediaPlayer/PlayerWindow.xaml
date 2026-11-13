@@ -6,12 +6,35 @@
     xmlns:views="using:Iris_MediaPlayer.Views"
     Title="Iris">
 
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
     <!--
         Standalone player, shown when Windows opens a video file with Iris (like VLC).
-        Just the player: no navigation rail, library or top bar.
+        Just a title bar and the player: no navigation rail or library.
     -->
-    <Grid Background="{StaticResource IrisBackgroundBrush}" AllowDrop="True"
-          DragOver="Root_DragOver" Drop="Root_Drop">
-        <views:PlayerView x:Name="Player" />
+    <Grid AllowDrop="True" DragOver="Root_DragOver" Drop="Root_Drop">
+        <Grid.RowDefinitions>
+            <RowDefinition x:Name="TitleBarRow" Height="48" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid x:Name="AppTitleBar" Padding="18,0,0,0" Background="Transparent">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Viewbox Width="18" Height="18" VerticalAlignment="Center">
+                    <Canvas Width="24" Height="24">
+                        <Path Data="M2,12 C5,7 9,5 12,5 C15,5 19,7 22,12 C19,17 15,19 12,19 C9,19 5,17 2,12 Z"
+                              Stroke="{StaticResource IrisAccentLightBrush}" StrokeThickness="1.8" />
+                        <Ellipse Canvas.Left="8.8" Canvas.Top="8.8" Width="6.4" Height="6.4"
+                                 Fill="{StaticResource IrisAccentLightBrush}" />
+                    </Canvas>
+                </Viewbox>
+                <TextBlock x:Name="TitleBarText" Text="Iris" FontSize="12" VerticalAlignment="Center"
+                           Foreground="{StaticResource IrisTextSecondaryBrush}" />
+            </StackPanel>
+        </Grid>
+
+        <views:PlayerView x:Name="Player" Grid.Row="1" />
     </Grid>
 </Window>

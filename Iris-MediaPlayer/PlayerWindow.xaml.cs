@@ -6,7 +6,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Windows.ApplicationModel.DataTransfer;
-using Windows.Graphics;
 using Windows.Storage;
 
 namespace Iris_MediaPlayer;
@@ -18,21 +17,28 @@ namespace Iris_MediaPlayer;
 public sealed partial class PlayerWindow : Window
 {
     private readonly LibraryStore _store;
+    private readonly MiniPlayerMode _miniPlayer = new();
     private bool _isFullscreen;
 
     public PlayerWindow(IReadOnlyList<string> filePaths)
     {
         InitializeComponent();
-        SizeAndCenter(1280, 760);
+        WindowChrome.ExtendIntoTitleBar(this, AppTitleBar);
+        WindowChrome.SizeAndCenter(this, 1280, 760);
 
         // The store is only used for resume, progress and recently played; the library is never scanned here.
         _store = new LibraryStore(DispatcherQueue);
 
         Player.Initialize(_store);
         Player.IsStandalone = true;
-        Player.ApplyFrameMode(squareCorners: true, overlayBars: false);
         Player.FullscreenToggleRequested += (_, _) => SetFullscreen(!_isFullscreen);
-        Player.MediaChanged += (_, media) => Title = $"{media.Title} – Iris";
+        Player.MiniPlayerToggleRequested += (_, _) => SetMiniPlayer(!_miniPlayer.IsActive);
+        Player.MiniPlayerCloseRequested += (_, _) => Close();
+        Player.MediaChanged += (_, media) =>
+        {
+            Title = $"{media.Title} – Iris";
+            TitleBarText.Text = media.Title;
+        };
 
         Closed += (_, _) =>
         {
@@ -64,23 +70,39 @@ public sealed partial class PlayerWindow : Window
     {
         if (_isFullscreen == enabled)
             return;
+        if (enabled && _miniPlayer.IsActive)
+            SetMiniPlayer(false);
 
         _isFullscreen = enabled;
         AppWindow.SetPresenter(enabled ? AppWindowPresenterKind.FullScreen : AppWindowPresenterKind.Overlapped);
-        Player.ApplyFrameMode(squareCorners: true, overlayBars: enabled);
+        SetTitleBarVisible(!enabled);
         Player.SetFullscreen(enabled);
     }
 
-    private void SizeAndCenter(int width, int height)
+    private void SetMiniPlayer(bool enabled)
     {
-        var workArea = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
-        width = Math.Min(width, workArea.Width);
-        height = Math.Min(height, workArea.Height);
-        AppWindow.MoveAndResize(new RectInt32(
-            workArea.X + (workArea.Width - width) / 2,
-            workArea.Y + (workArea.Height - height) / 2,
-            width,
-            height));
+        if (_miniPlayer.IsActive == enabled)
+            return;
+
+        if (enabled)
+        {
+            if (_isFullscreen)
+                SetFullscreen(false);
+            _miniPlayer.Enter(AppWindow, Content.XamlRoot?.RasterizationScale ?? 1);
+        }
+        else
+        {
+            _miniPlayer.Exit(AppWindow);
+        }
+
+        SetTitleBarVisible(!enabled);
+        Player.SetMiniMode(enabled);
+    }
+
+    private void SetTitleBarVisible(bool visible)
+    {
+        TitleBarRow.Height = visible ? new GridLength((double)Application.Current.Resources["IrisTitleBarHeight"]) : new GridLength(0);
+        AppTitleBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // Drop a video to play it, or a subtitle file to add it to the current video.

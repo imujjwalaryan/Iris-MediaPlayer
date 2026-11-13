@@ -3,302 +3,515 @@
     x:Class="Iris_MediaPlayer.Views.PlayerView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Iris_MediaPlayer.Views.Controls"
     IsTabStop="True"
     UseSystemFocusVisuals="False">
 
     <UserControl.Resources>
-        <Style x:Key="PlayerIconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
-            <Setter Property="Width" Value="36" />
-            <Setter Property="Height" Value="36" />
-            <Setter Property="MinWidth" Value="0" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="VerticalAlignment" Value="Center" />
+        <!-- The big light play/pause button in the controls bar and the mini player. -->
+        <Style x:Key="PlayerBigButtonStyle" TargetType="Button" BasedOn="{StaticResource IrisIconButtonStyle}">
+            <Setter Property="Template" Value="{StaticResource IrisFilledButtonTemplate}" />
+            <Setter Property="Width" Value="52" />
+            <Setter Property="Height" Value="52" />
+            <Setter Property="CornerRadius" Value="26" />
+            <Setter Property="Background" Value="{StaticResource IrisLightBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource IrisOnLightBrush}" />
         </Style>
-        <Style x:Key="FlyoutLabelStyle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Opacity" Value="0.72" />
+        <!-- Round button with a glass fill, for the Back button over the video. -->
+        <Style x:Key="PlayerGlassButtonStyle" TargetType="Button" BasedOn="{StaticResource IrisIconButtonStyle}">
+            <Setter Property="Background" Value="{StaticResource IrisGlassBrush}" />
+            <Setter Property="BorderBrush" Value="#14FFFFFF" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style x:Key="PlayerIconPathStyle" TargetType="Path">
+            <Setter Property="Stroke" Value="{StaticResource IrisPlayerIconBrush}" />
+            <Setter Property="StrokeThickness" Value="1.8" />
+            <Setter Property="StrokeStartLineCap" Value="Round" />
+            <Setter Property="StrokeEndLineCap" Value="Round" />
+            <Setter Property="StrokeLineJoin" Value="Round" />
+        </Style>
+        <Style x:Key="PlayerDividerStyle" TargetType="Border">
+            <Setter Property="Width" Value="1" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Margin" Value="8,0" />
+            <Setter Property="Background" Value="#1FFFFFFF" />
+            <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
     </UserControl.Resources>
 
-    <Grid x:Name="PlayerRoot" Background="#0D0F15" CornerRadius="15" PointerMoved="Player_PointerMoved">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-        <Grid.Resources>
-            <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#22FFFFFF" />
-            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#14FFFFFF" />
-            <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent" />
-            <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
-            <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
-            <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="Transparent" />
-        </Grid.Resources>
+    <Grid x:Name="PlayerRoot" Background="Black"
+          PointerMoved="Player_PointerMoved"
+          PointerEntered="Player_PointerEntered"
+          PointerExited="Player_PointerExited">
 
-        <!-- Video surface: click to pause, double-click for fullscreen -->
-        <Grid x:Name="VideoHost" Grid.Row="1" Background="Transparent" SizeChanged="VideoHost_SizeChanged"
-              Tapped="VideoHost_Tapped" DoubleTapped="VideoHost_DoubleTapped">
+        <!-- Video surface: click to pause, double-click for fullscreen. In the mini player, drag to move. -->
+        <Grid x:Name="VideoHost" Background="Transparent" SizeChanged="VideoHost_SizeChanged"
+              Tapped="VideoHost_Tapped" DoubleTapped="VideoHost_DoubleTapped" PointerPressed="VideoHost_PointerPressed">
             <SwapChainPanel x:Name="VideoPanel" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
-            <StackPanel x:Name="PlayerStatus" HorizontalAlignment="Center" VerticalAlignment="Center"
-                        Spacing="10" IsHitTestVisible="False">
-                <ProgressRing x:Name="PlaybackProgress" IsActive="False" Width="36" Height="36" />
-                <TextBlock x:Name="PlaybackStatusText" Text="Choose a video to start playback."
-                           HorizontalAlignment="Center" Opacity="0.76" />
-            </StackPanel>
+            <!-- The card's thumbnail grows into this frame, then fades as the first video frame arrives. -->
+            <Border x:Name="PosterFrame" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    IsHitTestVisible="False" Visibility="Collapsed">
+                <Image x:Name="PosterImage" Stretch="UniformToFill" />
+            </Border>
         </Grid>
 
+        <!-- Scrims that keep the bars readable; they fade with the controls. -->
+        <Grid x:Name="Scrims" IsHitTestVisible="False">
+            <Border VerticalAlignment="Top" Height="180">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#99000000" Offset="0" />
+                        <GradientStop Color="#00000000" Offset="1" />
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
+            <Border VerticalAlignment="Bottom" Height="260">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                        <GradientStop Color="#D9000000" Offset="0" />
+                        <GradientStop Color="#80000000" Offset="0.45" />
+                        <GradientStop Color="#00000000" Offset="1" />
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
+        </Grid>
+
+        <!-- Play/pause pulse in the centre -->
+        <Border x:Name="PulseBadge" Width="96" Height="96" CornerRadius="48" Background="#73000000"
+                HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
+            <FontIcon x:Name="PulseIcon" Glyph="&#xF5B0;" FontSize="38" Foreground="White" />
+        </Border>
+
+        <StackPanel x:Name="PlayerStatus" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Spacing="12" IsHitTestVisible="False">
+            <ProgressRing x:Name="PlaybackProgress" IsActive="False" Width="36" Height="36" />
+            <TextBlock x:Name="PlaybackStatusText" Text="Choose a video to start playback."
+                       HorizontalAlignment="Center" Foreground="{StaticResource IrisTextMutedBrush}" />
+        </StackPanel>
+
         <!-- Short on-screen messages such as "Volume 40%" -->
-        <Border x:Name="OsdBanner" Grid.Row="1" Visibility="Collapsed" IsHitTestVisible="False"
-                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,20,0,0"
-                Padding="14,6" CornerRadius="6" Background="#E6181A20">
-            <TextBlock x:Name="OsdText" />
+        <Border x:Name="OsdBanner" Visibility="Collapsed" IsHitTestVisible="False"
+                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,84,0,0"
+                Padding="16,8" CornerRadius="18" Background="{StaticResource IrisGlassBrush}"
+                BorderBrush="#14FFFFFF" BorderThickness="1">
+            <TextBlock x:Name="OsdText" FontSize="13" FontWeight="SemiBold" />
         </Border>
 
-        <!-- "Resumed from 12:34 · Start over" -->
-        <Border x:Name="ResumeBanner" Grid.Row="1" Visibility="Collapsed"
-                HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="20"
-                Padding="14,8,8,8" CornerRadius="8" Background="#E6181A20"
-                BorderBrush="#22FFFFFF" BorderThickness="1">
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <TextBlock x:Name="ResumeBannerText" Text="Resumed" VerticalAlignment="Center" />
-                <Button Content="Start over" Click="StartOver_Click" />
-            </StackPanel>
-        </Border>
-
-        <!-- End of video: up next countdown, or replay -->
-        <Border x:Name="EndPanel" Grid.Row="1" Visibility="Collapsed"
-                HorizontalAlignment="Center" VerticalAlignment="Center"
-                Padding="24" CornerRadius="12" Background="#F0181A20" MaxWidth="440"
-                BorderBrush="#22FFFFFF" BorderThickness="1">
-            <StackPanel Spacing="10">
-                <TextBlock x:Name="EndPanelHeading" Text="UP NEXT" FontWeight="SemiBold" CharacterSpacing="160"
-                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                <TextBlock x:Name="EndPanelTitle" Style="{StaticResource SubtitleTextBlockStyle}"
-                           TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
-                <TextBlock x:Name="EndPanelCountdown" Opacity="0.72" />
-                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
-                    <Button x:Name="EndPlayNextButton" Content="Play now" Click="EndPlayNext_Click"
-                            Style="{StaticResource AccentButtonStyle}" />
-                    <Button x:Name="EndCancelButton" Content="Cancel" Click="EndCancel_Click" />
-                    <Button x:Name="EndReplayButton" Click="EndReplay_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE72C;" FontSize="14" />
-                            <TextBlock Text="Replay" />
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-            </StackPanel>
-        </Border>
-
-        <!-- Header: back, title, position in queue -->
-        <Grid x:Name="PlayerHeaderBar" VerticalAlignment="Top" Padding="8,8,18,8" CornerRadius="15,15,0,0"
-              Background="#B3000000" ColumnSpacing="8"
+        <!-- Top bar: back, title and details, picture in picture, more -->
+        <Grid x:Name="PlayerHeaderBar" VerticalAlignment="Top" Padding="24,20,24,0" ColumnSpacing="14"
               PointerEntered="Bars_PointerEntered" PointerExited="Bars_PointerExited">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <Button x:Name="BackButton" Style="{StaticResource PlayerIconButtonStyle}" Click="Back_Click"
-                    ToolTipService.ToolTip="Back (Esc)">
+            <Button x:Name="BackButton" Style="{StaticResource PlayerGlassButtonStyle}" Click="Back_Click"
+                    ToolTipService.ToolTip="Back (Esc)" AutomationProperties.Name="Back to library">
                 <FontIcon Glyph="&#xE72B;" FontSize="16" />
             </Button>
-            <TextBlock x:Name="PlayerTitle" Grid.Column="1" Text="Ready to play" VerticalAlignment="Center"
-                       FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-            <TextBlock x:Name="QueuePositionText" Grid.Column="2" VerticalAlignment="Center"
-                       FontSize="12" Opacity="0.65" />
+            <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                <TextBlock x:Name="PlayerTitle" Text="Ready to play" FontSize="17" FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis" MaxLines="1" />
+                <TextBlock x:Name="PlayerDetails" FontSize="13" Foreground="{StaticResource IrisTextMutedBrush}"
+                           TextTrimming="CharacterEllipsis" MaxLines="1" />
+            </StackPanel>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button x:Name="MiniPlayerButton" Style="{StaticResource IrisIconButtonStyle}" Click="MiniPlayer_Click"
+                        ToolTipService.ToolTip="Mini player (I)" AutomationProperties.Name="Mini player">
+                    <Viewbox Width="18" Height="18">
+                        <Canvas Width="24" Height="24">
+                            <Rectangle Canvas.Left="3" Canvas.Top="5" Width="18" Height="14" RadiusX="2.5" RadiusY="2.5"
+                                       Stroke="{StaticResource IrisPlayerIconBrush}" StrokeThickness="1.8" />
+                            <Rectangle Canvas.Left="12" Canvas.Top="11" Width="7" Height="6" RadiusX="1.2" RadiusY="1.2"
+                                       Fill="{StaticResource IrisPlayerIconBrush}" />
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+                <Button x:Name="MoreButton" Style="{StaticResource IrisIconButtonStyle}" Click="More_Click"
+                        ToolTipService.ToolTip="More options" AutomationProperties.Name="More options">
+                    <FontIcon Glyph="&#xE712;" FontSize="16" />
+                </Button>
+            </StackPanel>
         </Grid>
 
-        <Border x:Name="PlayerControlsBar" Grid.Row="2" VerticalAlignment="Bottom" Padding="12,6,12,6"
-                CornerRadius="0,0,15,15" SizeChanged="PlayerControlsBar_SizeChanged"
-                PointerEntered="Bars_PointerEntered" PointerExited="Bars_PointerExited">
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                    <GradientStop Color="#00101010" Offset="0" />
-                    <GradientStop Color="#A6000000" Offset="0.42" />
-                    <GradientStop Color="#E6000000" Offset="1" />
-                </LinearGradientBrush>
-            </Border.Background>
-            <Grid x:Name="ControlsRow" ColumnSpacing="12" MinHeight="40">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <StackPanel x:Name="LeftControlsGroup" Orientation="Horizontal" Spacing="2"
-                            VerticalAlignment="Center">
-                    <Button x:Name="PreviousButton" Style="{StaticResource PlayerIconButtonStyle}"
-                            Click="Previous_Click" IsEnabled="False"
-                            ToolTipService.ToolTip="Previous (Shift+P)">
-                        <FontIcon Glyph="&#xE892;" FontSize="14" />
-                    </Button>
-                    <Button x:Name="PlayPauseButton" Style="{StaticResource PlayerIconButtonStyle}"
-                            Click="PlayPause_Click" IsEnabled="False"
-                            ToolTipService.ToolTip="Play or pause (Space)">
-                        <FontIcon x:Name="PlayPauseIcon" Glyph="&#xE768;" FontSize="16" />
-                    </Button>
-                    <Button x:Name="NextButton" Style="{StaticResource PlayerIconButtonStyle}"
-                            Click="Next_Click" IsEnabled="False"
-                            ToolTipService.ToolTip="Next (Shift+N)">
-                        <FontIcon Glyph="&#xE893;" FontSize="14" />
-                    </Button>
-                    <Button x:Name="SeekBackwardButton" Style="{StaticResource PlayerIconButtonStyle}"
-                            Click="SeekBackward_Click" IsEnabled="False"
-                            ToolTipService.ToolTip="Back 10 seconds (J)">
-                        <StackPanel Orientation="Horizontal" Spacing="2">
-                            <FontIcon Glyph="&#xE72B;" FontSize="14" />
-                            <TextBlock Text="10" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="SeekForwardButton" Style="{StaticResource PlayerIconButtonStyle}"
-                            Click="SeekForward_Click" IsEnabled="False"
-                            ToolTipService.ToolTip="Forward 10 seconds (L)">
-                        <StackPanel Orientation="Horizontal" Spacing="2">
-                            <TextBlock Text="10" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" />
-                            <FontIcon Glyph="&#xE72A;" FontSize="14" />
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="MuteButton" Style="{StaticResource PlayerIconButtonStyle}"
-                            Click="MuteButton_Click" IsEnabled="False"
-                            ToolTipService.ToolTip="Mute (M)">
-                        <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="16" />
-                    </Button>
-                    <Slider x:Name="VolumeSlider" Width="96" Minimum="0" Maximum="100" Value="100"
-                            VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged" />
-                    <StackPanel x:Name="TimeGroup" Orientation="Horizontal" Spacing="4" MinWidth="104"
-                                Margin="10,0,0,0" VerticalAlignment="Center">
-                        <TextBlock x:Name="CurrentTimeText" Text="0:00" FontSize="12" />
-                        <TextBlock x:Name="TimeSeparatorText" Text="/" FontSize="12" Opacity="0.5" />
-                        <TextBlock x:Name="DurationText" Text="0:00" FontSize="12" Opacity="0.72" />
-                    </StackPanel>
+        <!-- Notices above the controls: resume (left) and Up next (right) -->
+        <Grid x:Name="NoticeArea" VerticalAlignment="Bottom" Margin="24,0,24,156">
+            <Border x:Name="ResumeBanner" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                    Padding="16,8,8,8" CornerRadius="18" Background="{StaticResource IrisGlassBrush}"
+                    BorderBrush="#14FFFFFF" BorderThickness="1">
+                <StackPanel Orientation="Horizontal" Spacing="14">
+                    <TextBlock x:Name="ResumeBannerText" Text="Resumed" VerticalAlignment="Center" FontSize="13" />
+                    <Button Content="Start over" Style="{StaticResource IrisCtaQuietButtonStyle}" Click="StartOver_Click" />
                 </StackPanel>
+            </Border>
 
-                <Grid x:Name="SeekBarHost" Grid.Column="1" Height="32" VerticalAlignment="Center"
-                      PointerMoved="SeekBarHost_PointerMoved" PointerExited="SeekBarHost_PointerExited">
-                    <Slider x:Name="SeekSlider" Minimum="0" Maximum="1" Value="0"
-                            VerticalAlignment="Center" IsThumbToolTipEnabled="False" IsEnabled="False"
-                            ValueChanged="SeekSlider_ValueChanged"
-                            PointerPressed="SeekSlider_PointerPressed" PointerReleased="SeekSlider_PointerReleased" />
-                    <Canvas IsHitTestVisible="False">
-                        <Border x:Name="SeekPreviewBadge" Canvas.Top="-34" Visibility="Collapsed" Padding="8,4"
-                                Background="#F21F1F1F" BorderBrush="#22FFFFFF" BorderThickness="1"
-                                CornerRadius="6">
-                            <TextBlock x:Name="SeekPreviewText" Text="0:00" FontSize="12" Foreground="White" />
-                        </Border>
-                    </Canvas>
+            <Border x:Name="UpNextCard" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                    Width="360" Padding="14" CornerRadius="18" Background="{StaticResource IrisGlassBrush}"
+                    BorderBrush="#14FFFFFF" BorderThickness="1">
+                <Grid ColumnSpacing="14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid Width="112" Height="63" CornerRadius="10" Background="{StaticResource IrisRaisedBrush}">
+                        <Image x:Name="UpNextImage" Stretch="UniformToFill" />
+                        <Grid x:Name="UpNextRing" Width="40" Height="40">
+                            <Ellipse Fill="#73000000" />
+                            <Ellipse x:Name="UpNextRingStroke" Stroke="White" StrokeThickness="2.5" Margin="1.25"
+                                     StrokeDashArray="44.2,100" StrokeDashCap="Round" RenderTransformOrigin="0.5,0.5">
+                                <Ellipse.RenderTransform>
+                                    <RotateTransform Angle="-90" />
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                            <FontIcon Glyph="&#xF5B0;" FontSize="13" Margin="2,0,0,0" Foreground="White" />
+                        </Grid>
+                    </Grid>
+                    <StackPanel Grid.Column="1" Spacing="8" VerticalAlignment="Center">
+                        <StackPanel Spacing="2">
+                            <TextBlock x:Name="UpNextHeading" Text="UP NEXT" FontSize="11" FontWeight="SemiBold"
+                                       CharacterSpacing="120" Foreground="{StaticResource IrisAccentTextBrush}" />
+                            <TextBlock x:Name="UpNextTitle" FontSize="14" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" MaxLines="1" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="UpNextPlayButton" Content="Play now" Style="{StaticResource IrisCtaPrimaryButtonStyle}"
+                                    Click="EndPlayNext_Click" />
+                            <Button x:Name="UpNextCancelButton" Content="Cancel" Style="{StaticResource IrisCtaQuietButtonStyle}"
+                                    Click="EndCancel_Click" />
+                            <Button x:Name="UpNextReplayButton" Style="{StaticResource IrisCtaQuietButtonStyle}" Click="EndReplay_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE72C;" FontSize="12" />
+                                    <TextBlock Text="Replay" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Floating controls -->
+        <Border x:Name="PlayerControlsBar" VerticalAlignment="Bottom" Margin="24,0,24,24"
+                Padding="18,12" Background="Transparent"
+                SizeChanged="PlayerControlsBar_SizeChanged"
+                PointerEntered="Bars_PointerEntered" PointerExited="Bars_PointerExited">
+            <StackPanel Spacing="6">
+                <Grid ColumnSpacing="14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="CurrentTimeText" Text="0:00" FontSize="13" MinWidth="44" VerticalAlignment="Center"
+                               Foreground="{StaticResource IrisPlayerIconBrush}" />
+
+                    <!-- Seek bar: buffered and played fills, a knob and a time preview on hover -->
+                    <Grid x:Name="SeekTrack" Grid.Column="1" Height="18" Background="Transparent"
+                          AutomationProperties.Name="Seek"
+                          PointerEntered="SeekTrack_PointerEntered" PointerExited="SeekTrack_PointerExited"
+                          PointerPressed="SeekTrack_PointerPressed" PointerMoved="SeekTrack_PointerMoved"
+                          PointerReleased="SeekTrack_PointerReleased" PointerCaptureLost="SeekTrack_PointerCaptureLost"
+                          SizeChanged="SeekTrack_SizeChanged">
+                        <Grid x:Name="SeekRail" Height="4" CornerRadius="2" VerticalAlignment="Center" Background="#2EFFFFFF">
+                            <Border x:Name="SeekBuffered" HorizontalAlignment="Left" Width="0" CornerRadius="2" Background="#47FFFFFF" />
+                            <Border x:Name="SeekPlayed" HorizontalAlignment="Left" Width="0" CornerRadius="2"
+                                    Background="{StaticResource IrisAccentBrush}" />
+                        </Grid>
+                        <Canvas IsHitTestVisible="False">
+                            <Grid x:Name="SeekKnob" Width="22" Height="22" Canvas.Top="-2">
+                                <Ellipse Fill="#598B93FF" />
+                                <Ellipse Width="14" Height="14" Fill="White" />
+                            </Grid>
+                            <Border x:Name="SeekPreviewBadge" Canvas.Top="-38" Visibility="Collapsed" Padding="8,4"
+                                    CornerRadius="6" Background="#BF000000">
+                                <TextBlock x:Name="SeekPreviewText" Text="0:00" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="White" />
+                            </Border>
+                        </Canvas>
+                    </Grid>
+
+                    <TextBlock x:Name="RemainingTimeText" Grid.Column="2" Text="-0:00" FontSize="13" MinWidth="52"
+                               TextAlignment="Right" VerticalAlignment="Center"
+                               Foreground="{StaticResource IrisTextSecondaryBrush}" />
                 </Grid>
 
-                <StackPanel x:Name="RightControlsGroup" Grid.Column="2" Orientation="Horizontal" Spacing="2"
-                            VerticalAlignment="Center">
-                    <Button x:Name="PlayerSettingsButton" Style="{StaticResource PlayerIconButtonStyle}"
-                            ToolTipService.ToolTip="Playback settings">
-                        <FontIcon Glyph="&#xE713;" FontSize="16" />
-                        <Button.Flyout>
-                            <Flyout x:Name="PlayerSettingsFlyout" Placement="Top">
-                                <Border Background="#F20A0A0A" Padding="16" CornerRadius="8" MinWidth="300">
-                                    <ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto" Padding="0,0,12,0">
-                                        <StackPanel Spacing="12">
-                                            <TextBlock Text="Playback settings" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <Grid x:Name="ControlsRow">
+                    <StackPanel x:Name="LeftControlsGroup" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Button x:Name="PreviousButton" Style="{StaticResource IrisIconButtonStyle}" Click="Previous_Click"
+                                IsEnabled="False" ToolTipService.ToolTip="Previous (Shift+P)" AutomationProperties.Name="Previous video">
+                            <FontIcon Glyph="&#xE892;" FontSize="15" />
+                        </Button>
+                        <Button x:Name="PlayPauseButton" Style="{StaticResource PlayerBigButtonStyle}" Click="PlayPause_Click"
+                                IsEnabled="False" ToolTipService.ToolTip="Play or pause (Space)" AutomationProperties.Name="Play">
+                            <FontIcon x:Name="PlayPauseIcon" Glyph="&#xF5B0;" FontSize="18" />
+                        </Button>
+                        <Button x:Name="NextButton" Style="{StaticResource IrisIconButtonStyle}" Click="Next_Click"
+                                IsEnabled="False" ToolTipService.ToolTip="Next (Shift+N)" AutomationProperties.Name="Next video">
+                            <FontIcon Glyph="&#xE893;" FontSize="15" />
+                        </Button>
+                        <Border x:Name="SeekDivider" Style="{StaticResource PlayerDividerStyle}" />
+                        <Button x:Name="SeekBackwardButton" Style="{StaticResource IrisIconButtonStyle}" Click="SeekBackward_Click"
+                                IsEnabled="False" ToolTipService.ToolTip="Back 10 seconds (J)" AutomationProperties.Name="Back 10 seconds">
+                            <Viewbox Width="20" Height="20">
+                                <Canvas Width="24" Height="24">
+                                    <Path Style="{StaticResource PlayerIconPathStyle}" Data="M3,12 A9,9 0 1 0 6,5.3 L3,8 M3,3 L3,8 L8,8" />
+                                    <TextBlock Canvas.Left="7.2" Canvas.Top="7.6" Text="10" FontSize="7.5" FontWeight="Bold"
+                                               Foreground="{StaticResource IrisPlayerIconBrush}" />
+                                </Canvas>
+                            </Viewbox>
+                        </Button>
+                        <Button x:Name="SeekForwardButton" Style="{StaticResource IrisIconButtonStyle}" Click="SeekForward_Click"
+                                IsEnabled="False" ToolTipService.ToolTip="Forward 10 seconds (L)" AutomationProperties.Name="Forward 10 seconds">
+                            <Viewbox Width="20" Height="20">
+                                <Canvas Width="24" Height="24">
+                                    <Path Style="{StaticResource PlayerIconPathStyle}" Data="M21,12 A9,9 0 1 1 18,5.3 L21,8 M21,3 L21,8 L16,8" />
+                                    <TextBlock Canvas.Left="7.6" Canvas.Top="7.6" Text="10" FontSize="7.5" FontWeight="Bold"
+                                               Foreground="{StaticResource IrisPlayerIconBrush}" />
+                                </Canvas>
+                            </Viewbox>
+                        </Button>
+                        <Border x:Name="VolumeDivider" Style="{StaticResource PlayerDividerStyle}" />
+                        <Button x:Name="MuteButton" Style="{StaticResource IrisIconButtonStyle}" Click="MuteButton_Click"
+                                IsEnabled="False" ToolTipService.ToolTip="Mute (M)" AutomationProperties.Name="Mute">
+                            <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="17" />
+                        </Button>
+                        <Slider x:Name="VolumeSlider" Width="96" Minimum="0" Maximum="100" Value="100"
+                                VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged"
+                                AutomationProperties.Name="Volume" />
+                    </StackPanel>
 
-                                            <StackPanel Spacing="5">
-                                                <TextBlock Text="Audio track" Style="{StaticResource FlyoutLabelStyle}" />
-                                                <ComboBox x:Name="AudioTrackCombo" MinWidth="268"
-                                                          PlaceholderText="No audio tracks" IsEnabled="False"
-                                                          SelectionChanged="AudioTrackCombo_SelectionChanged" />
-                                            </StackPanel>
-                                            <StackPanel Spacing="5">
-                                                <TextBlock Text="Audio delay (seconds)" Style="{StaticResource FlyoutLabelStyle}" />
-                                                <NumberBox x:Name="AudioDelayBox" Value="0" Minimum="-30" Maximum="30"
-                                                           SmallChange="0.1" LargeChange="1"
-                                                           SpinButtonPlacementMode="Inline"
-                                                           ValueChanged="AudioDelayBox_ValueChanged" />
-                                            </StackPanel>
+                    <StackPanel x:Name="RightControlsGroup" Orientation="Horizontal" Spacing="4"
+                                HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <TextBlock x:Name="SpeedLabel" FontSize="12" FontWeight="SemiBold" Padding="10,0" VerticalAlignment="Center"
+                                   Foreground="{StaticResource IrisTextMutedBrush}" Visibility="Collapsed" />
+                        <ToggleButton x:Name="SubtitlesToggle" Style="{StaticResource IrisIconToggleStyle}" Click="SubtitlesToggle_Click"
+                                      IsEnabled="False" ToolTipService.ToolTip="Subtitles (V)" AutomationProperties.Name="Subtitles">
+                            <Viewbox Width="20" Height="20">
+                                <Canvas Width="24" Height="24">
+                                    <Rectangle x:Name="SubtitlesIconFrame" Canvas.Left="3" Canvas.Top="5" Width="18" Height="14"
+                                               RadiusX="3" RadiusY="3" Stroke="{StaticResource IrisPlayerIconBrush}" StrokeThickness="1.8" />
+                                    <Path x:Name="SubtitlesIconText" Style="{StaticResource PlayerIconPathStyle}"
+                                          Data="M10.5,10.2 A2,2 0 1 0 10.5,13.8 M16.5,10.2 A2,2 0 1 0 16.5,13.8" />
+                                </Canvas>
+                            </Viewbox>
+                        </ToggleButton>
+                        <ToggleButton x:Name="SettingsToggle" Style="{StaticResource IrisIconToggleStyle}" Click="SettingsToggle_Click"
+                                      ToolTipService.ToolTip="Playback settings" AutomationProperties.Name="Playback settings">
+                            <Viewbox Width="20" Height="20">
+                                <Canvas Width="24" Height="24">
+                                    <Path x:Name="SettingsIconLines" Style="{StaticResource PlayerIconPathStyle}"
+                                          Data="M4,7 L14,7 M18,7 L20,7 M4,17 L8,17 M12,17 L20,17" />
+                                    <Ellipse x:Name="SettingsIconKnobTop" Canvas.Left="14" Canvas.Top="5" Width="4" Height="4"
+                                             Stroke="{StaticResource IrisPlayerIconBrush}" StrokeThickness="1.8" />
+                                    <Ellipse x:Name="SettingsIconKnobBottom" Canvas.Left="8" Canvas.Top="15" Width="4" Height="4"
+                                             Stroke="{StaticResource IrisPlayerIconBrush}" StrokeThickness="1.8" />
+                                </Canvas>
+                            </Viewbox>
+                        </ToggleButton>
+                        <Button x:Name="ZoomButton" Style="{StaticResource IrisIconButtonStyle}" Click="ZoomButton_Click"
+                                ToolTipService.ToolTip="Zoom: Fit (C)" AutomationProperties.Name="Zoom">
+                            <Viewbox Width="20" Height="20">
+                                <Canvas Width="24" Height="24">
+                                    <Path Style="{StaticResource PlayerIconPathStyle}"
+                                          Data="M8,3 L5,3 A2,2 0 0 0 3,5 L3,8 M16,3 L19,3 A2,2 0 0 1 21,5 L21,8 M8,21 L5,21 A2,2 0 0 1 3,19 L3,16 M16,21 L19,21 A2,2 0 0 0 21,19 L21,16" />
+                                </Canvas>
+                            </Viewbox>
+                        </Button>
+                        <Button x:Name="FullscreenButton" Style="{StaticResource IrisIconButtonStyle}" Click="FullscreenButton_Click"
+                                ToolTipService.ToolTip="Fullscreen (F)" AutomationProperties.Name="Fullscreen">
+                            <Viewbox Width="20" Height="20">
+                                <Canvas Width="24" Height="24">
+                                    <Path x:Name="EnterFullscreenIcon" Style="{StaticResource PlayerIconPathStyle}"
+                                          Data="M15,3 L21,3 L21,9 M9,21 L3,21 L3,15 M21,3 L14,10 M3,21 L10,14" />
+                                    <Path x:Name="ExitFullscreenIcon" Style="{StaticResource PlayerIconPathStyle}" Visibility="Collapsed"
+                                          Data="M14,4 L14,10 L20,10 M21,3 L14,10 M10,20 L10,14 L4,14 M3,21 L10,14" />
+                                </Canvas>
+                            </Viewbox>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Border>
 
-                                            <StackPanel Spacing="5">
-                                                <TextBlock Text="Subtitles" Style="{StaticResource FlyoutLabelStyle}" />
-                                                <ComboBox x:Name="SubtitleTrackCombo" MinWidth="268"
-                                                          PlaceholderText="No subtitles" IsEnabled="False"
-                                                          SelectionChanged="SubtitleTrackCombo_SelectionChanged" />
-                                                <Button x:Name="LoadSubtitleButton" Content="Load subtitle file…"
-                                                        Click="LoadSubtitle_Click" IsEnabled="False"
-                                                        ToolTipService.ToolTip="You can also drop a subtitle file onto the player" />
-                                            </StackPanel>
-                                            <StackPanel Spacing="5">
-                                                <TextBlock Text="Subtitle delay (seconds) · Z / X" Style="{StaticResource FlyoutLabelStyle}" />
-                                                <NumberBox x:Name="SubtitleDelayBox" Value="0" Minimum="-30" Maximum="30"
-                                                           SmallChange="0.1" LargeChange="1"
-                                                           SpinButtonPlacementMode="Inline"
-                                                           ValueChanged="SubtitleDelayBox_ValueChanged" />
-                                            </StackPanel>
-
-                                            <StackPanel Spacing="5">
-                                                <TextBlock Text="Playback speed" Style="{StaticResource FlyoutLabelStyle}" />
-                                                <ComboBox x:Name="PlaybackSpeedCombo" MinWidth="268" SelectedIndex="2"
-                                                          SelectionChanged="PlaybackSpeedCombo_SelectionChanged">
-                                                    <ComboBoxItem Content="0.5×" Tag="0.5" />
-                                                    <ComboBoxItem Content="0.75×" Tag="0.75" />
-                                                    <ComboBoxItem Content="1×" Tag="1" />
-                                                    <ComboBoxItem Content="1.25×" Tag="1.25" />
-                                                    <ComboBoxItem Content="1.5×" Tag="1.5" />
-                                                    <ComboBoxItem Content="2×" Tag="2" />
-                                                </ComboBox>
-                                            </StackPanel>
-                                            <StackPanel Spacing="5">
-                                                <TextBlock Text="Zoom · C" Style="{StaticResource FlyoutLabelStyle}" />
-                                                <ComboBox x:Name="ZoomModeCombo" MinWidth="268" SelectedIndex="0"
-                                                          SelectionChanged="ZoomModeCombo_SelectionChanged">
-                                                    <ComboBoxItem Content="Fit (original)" Tag="Fit" />
-                                                    <ComboBoxItem Content="Fill screen (crops edges)" Tag="Fill" />
-                                                    <ComboBoxItem Content="Stretch" Tag="Stretch" />
-                                                </ComboBox>
-                                            </StackPanel>
-                                            <StackPanel Spacing="5">
-                                                <TextBlock Text="Crop" Style="{StaticResource FlyoutLabelStyle}" />
-                                                <ComboBox x:Name="CropCombo" MinWidth="268" SelectedIndex="0"
-                                                          SelectionChanged="CropCombo_SelectionChanged">
-                                                    <ComboBoxItem Content="None" Tag="0" />
-                                                    <ComboBoxItem Content="16:9" Tag="1.7778" />
-                                                    <ComboBoxItem Content="1.85:1" Tag="1.85" />
-                                                    <ComboBoxItem Content="21:9" Tag="2.3333" />
-                                                    <ComboBoxItem Content="2.35:1" Tag="2.35" />
-                                                    <ComboBoxItem Content="2.39:1" Tag="2.39" />
-                                                    <ComboBoxItem Content="4:3" Tag="1.3333" />
-                                                </ComboBox>
-                                            </StackPanel>
-                                            <StackPanel Spacing="5">
-                                                <TextBlock Text="Aspect ratio" Style="{StaticResource FlyoutLabelStyle}" />
-                                                <ComboBox x:Name="AspectRatioCombo" MinWidth="268" SelectedIndex="0"
-                                                          SelectionChanged="AspectRatioCombo_SelectionChanged">
-                                                    <ComboBoxItem Content="Original" Tag="-1" />
-                                                    <ComboBoxItem Content="16:9" Tag="16:9" />
-                                                    <ComboBoxItem Content="4:3" Tag="4:3" />
-                                                    <ComboBoxItem Content="21:9" Tag="21:9" />
-                                                    <ComboBoxItem Content="2.35:1" Tag="2.35:1" />
-                                                </ComboBox>
-                                            </StackPanel>
-
-                                            <ToggleSwitch x:Name="AutoplayToggle" Header="Autoplay next video"
-                                                          Toggled="AutoplayToggle_Toggled" />
-                                        </StackPanel>
-                                    </ScrollViewer>
-                                </Border>
-                            </Flyout>
-                        </Button.Flyout>
+        <!-- Playback settings sheet: slides in from the right over the video -->
+        <Border x:Name="SettingsSheet" HorizontalAlignment="Right" Width="384" Visibility="Collapsed"
+                Background="{StaticResource IrisSheetBrush}" BorderBrush="#14FFFFFF" BorderThickness="1,0,0,0"
+                PointerEntered="Bars_PointerEntered" PointerExited="Bars_PointerExited">
+            <Grid Padding="24" RowSpacing="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid>
+                    <TextBlock Text="Playback" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Style="{StaticResource IrisIconButtonStyle}" HorizontalAlignment="Right" Click="CloseSettings_Click"
+                            ToolTipService.ToolTip="Close" AutomationProperties.Name="Close settings">
+                        <FontIcon Glyph="&#xE711;" FontSize="14" />
                     </Button>
-                    <Button x:Name="ZoomButton" Style="{StaticResource PlayerIconButtonStyle}"
-                            Click="ZoomButton_Click" ToolTipService.ToolTip="Zoom: Fit (C)">
-                        <FontIcon Glyph="&#xE71E;" FontSize="16" />
-                    </Button>
-                    <Button x:Name="FullscreenButton" Style="{StaticResource PlayerIconButtonStyle}"
-                            Click="FullscreenButton_Click" ToolTipService.ToolTip="Fullscreen (F)">
-                        <FontIcon x:Name="FullscreenIcon" Glyph="&#xE740;" FontSize="16" />
-                    </Button>
-                </StackPanel>
+                </Grid>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,-12,0" Padding="0,0,12,0">
+                    <StackPanel Spacing="22">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="ZOOM" Style="{StaticResource IrisLabelTextStyle}" />
+                            <controls:Segmented x:Name="ZoomSegments" IsPill="False" SelectionChanged="ZoomSegments_SelectionChanged" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="SPEED" Style="{StaticResource IrisLabelTextStyle}" />
+                            <controls:Segmented x:Name="SpeedSegments" IsPill="False" SelectionChanged="SpeedSegments_SelectionChanged" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="SUBTITLES" Style="{StaticResource IrisLabelTextStyle}" Margin="0,0,0,4" />
+                            <StackPanel x:Name="SubtitleRows" Spacing="2" />
+                            <Button x:Name="LoadSubtitleButton" Style="{StaticResource IrisSheetRowButtonStyle}" Click="LoadSubtitle_Click"
+                                    IsEnabled="False" Foreground="{StaticResource IrisAccentTextBrush}"
+                                    ToolTipService.ToolTip="You can also drop a subtitle file onto the player">
+                                <Grid>
+                                    <TextBlock Text="Load subtitle file…" VerticalAlignment="Center" />
+                                    <FontIcon Glyph="&#xE710;" FontSize="13" HorizontalAlignment="Right" />
+                                </Grid>
+                            </Button>
+                            <Grid Margin="0,10,0,0">
+                                <StackPanel Spacing="3" VerticalAlignment="Center">
+                                    <TextBlock Text="Subtitle delay" FontSize="14" />
+                                    <TextBlock Text="Z / X to nudge" Style="{StaticResource IrisCaptionTextStyle}"
+                                               Foreground="{StaticResource IrisTextSecondaryBrush}" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                    <Button Style="{StaticResource IrisStepperButtonStyle}" Content="−" Click="SubtitleDelayDown_Click"
+                                            AutomationProperties.Name="Subtitles earlier" />
+                                    <TextBlock x:Name="SubtitleDelayText" Text="0.0 s" Width="64" TextAlignment="Center"
+                                               VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold" />
+                                    <Button Style="{StaticResource IrisStepperButtonStyle}" Content="+" Click="SubtitleDelayUp_Click"
+                                            AutomationProperties.Name="Subtitles later" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="AUDIO" Style="{StaticResource IrisLabelTextStyle}" Margin="0,0,0,4" />
+                            <StackPanel x:Name="AudioRows" Spacing="2" />
+                            <Grid Margin="0,10,0,0">
+                                <TextBlock Text="Audio delay" FontSize="14" VerticalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                    <Button Style="{StaticResource IrisStepperButtonStyle}" Content="−" Click="AudioDelayDown_Click"
+                                            AutomationProperties.Name="Audio earlier" />
+                                    <TextBlock x:Name="AudioDelayText" Text="0.0 s" Width="64" TextAlignment="Center"
+                                               VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold" />
+                                    <Button Style="{StaticResource IrisStepperButtonStyle}" Content="+" Click="AudioDelayUp_Click"
+                                            AutomationProperties.Name="Audio later" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="PICTURE" Style="{StaticResource IrisLabelTextStyle}" />
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition />
+                                    <ColumnDefinition />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox x:Name="CropCombo" Header="Crop" HorizontalAlignment="Stretch" SelectedIndex="0"
+                                          SelectionChanged="CropCombo_SelectionChanged">
+                                    <ComboBoxItem Content="None" Tag="0" />
+                                    <ComboBoxItem Content="16:9" Tag="1.7778" />
+                                    <ComboBoxItem Content="1.85:1" Tag="1.85" />
+                                    <ComboBoxItem Content="21:9" Tag="2.3333" />
+                                    <ComboBoxItem Content="2.35:1" Tag="2.35" />
+                                    <ComboBoxItem Content="2.39:1" Tag="2.39" />
+                                    <ComboBoxItem Content="4:3" Tag="1.3333" />
+                                </ComboBox>
+                                <ComboBox x:Name="AspectRatioCombo" Grid.Column="1" Header="Aspect ratio" HorizontalAlignment="Stretch"
+                                          SelectedIndex="0" SelectionChanged="AspectRatioCombo_SelectionChanged">
+                                    <ComboBoxItem Content="Original" Tag="-1" />
+                                    <ComboBoxItem Content="16:9" Tag="16:9" />
+                                    <ComboBoxItem Content="4:3" Tag="4:3" />
+                                    <ComboBoxItem Content="21:9" Tag="21:9" />
+                                    <ComboBoxItem Content="2.35:1" Tag="2.35:1" />
+                                </ComboBox>
+                            </Grid>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Grid Grid.Row="2" Padding="0,16,0,0" BorderBrush="#14FFFFFF" BorderThickness="0,1,0,0">
+                    <StackPanel Spacing="3" VerticalAlignment="Center">
+                        <TextBlock Text="Autoplay next video" FontSize="14" />
+                        <TextBlock Text="Counts down for 5 seconds" Style="{StaticResource IrisCaptionTextStyle}"
+                                   Foreground="{StaticResource IrisTextSecondaryBrush}" />
+                    </StackPanel>
+                    <ToggleSwitch x:Name="AutoplayToggle" HorizontalAlignment="Right" MinWidth="0" OnContent="" OffContent=""
+                                  Toggled="AutoplayToggle_Toggled" AutomationProperties.Name="Autoplay next video" />
+                </Grid>
             </Grid>
         </Border>
+
+        <!-- Mini player (picture in picture): its own small overlay, shown on hover and while paused -->
+        <Grid x:Name="MiniOverlay" Visibility="Collapsed">
+            <Grid x:Name="MiniChrome">
+                <Grid.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#99000000" Offset="0" />
+                        <GradientStop Color="#1A000000" Offset="0.4" />
+                        <GradientStop Color="#1A000000" Offset="0.6" />
+                        <GradientStop Color="#B3000000" Offset="1" />
+                    </LinearGradientBrush>
+                </Grid.Background>
+                <Grid VerticalAlignment="Top" Padding="12,6,6,0" ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="MiniTitle" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" MaxLines="1" IsHitTestVisible="False" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Style="{StaticResource IrisIconButtonStyle}" Width="36" Height="36" Click="MiniPlayer_Click"
+                                ToolTipService.ToolTip="Back to full player" AutomationProperties.Name="Back to full player">
+                            <Viewbox Width="16" Height="16">
+                                <Canvas Width="24" Height="24">
+                                    <Path Style="{StaticResource PlayerIconPathStyle}" StrokeThickness="1.9"
+                                          Data="M15,3 L21,3 L21,9 M9,21 L3,21 L3,15 M21,3 L14,10 M3,21 L10,14" />
+                                </Canvas>
+                            </Viewbox>
+                        </Button>
+                        <Button Style="{StaticResource IrisIconButtonStyle}" Width="36" Height="36" Click="MiniClose_Click"
+                                ToolTipService.ToolTip="Close" AutomationProperties.Name="Close">
+                            <FontIcon Glyph="&#xE711;" FontSize="12" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
+                <StackPanel Orientation="Horizontal" Spacing="18" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Button Style="{StaticResource IrisIconButtonStyle}" Click="SeekBackward_Click" AutomationProperties.Name="Back 10 seconds">
+                        <Viewbox Width="20" Height="20">
+                            <Canvas Width="24" Height="24">
+                                <Path Style="{StaticResource PlayerIconPathStyle}" Data="M3,12 A9,9 0 1 0 6,5.3 L3,8 M3,3 L3,8 L8,8" />
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+                    <Button x:Name="MiniPlayPauseButton" Style="{StaticResource PlayerBigButtonStyle}" Width="56" Height="56"
+                            CornerRadius="28" Click="PlayPause_Click" AutomationProperties.Name="Play">
+                        <FontIcon x:Name="MiniPlayPauseIcon" Glyph="&#xF5B0;" FontSize="20" />
+                    </Button>
+                    <Button Style="{StaticResource IrisIconButtonStyle}" Click="SeekForward_Click" AutomationProperties.Name="Forward 10 seconds">
+                        <Viewbox Width="20" Height="20">
+                            <Canvas Width="24" Height="24">
+                                <Path Style="{StaticResource PlayerIconPathStyle}" Data="M21,12 A9,9 0 1 1 18,5.3 L21,8 M21,3 L21,8 L16,8" />
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+                </StackPanel>
+                <Grid VerticalAlignment="Bottom" Margin="12,0,12,12" IsHitTestVisible="False">
+                    <TextBlock x:Name="MiniElapsedText" FontSize="12" Foreground="{StaticResource IrisPlayerIconBrush}" />
+                    <TextBlock x:Name="MiniRemainingText" FontSize="12" HorizontalAlignment="Right"
+                               Foreground="{StaticResource IrisPlayerIconBrush}" />
+                </Grid>
+            </Grid>
+            <Grid x:Name="MiniProgressTrack" VerticalAlignment="Bottom" Height="3" Background="#33FFFFFF" IsHitTestVisible="False">
+                <Border x:Name="MiniProgressFill" HorizontalAlignment="Left" Width="0" Background="{StaticResource IrisAccentBrush}" />
+            </Grid>
+        </Grid>
     </Grid>
 </UserControl>
