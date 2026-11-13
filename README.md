@@ -1,98 +1,100 @@
 # Iris
 
-**A clean, fast video player for Windows.**
+A video player for Windows that I'm building for my own library.
 
-Point Iris at your video folders and it turns them into a library you can browse, search and
-pick up right where you left off. It plays almost any video file, including 4K, HDR and MKV
-movies with multiple audio and subtitle tracks.
+You add your video folders, and Iris turns them into a library you can browse, search and pick
+up where you left off. It plays pretty much anything, including 4K, HDR and MKV files with a
+bunch of audio and subtitle tracks.
+
+## Why another media player?
+
+I was using mpv for everything, with a bunch of random configs I picked up from here and there.
+It worked fine and the playback was great, I just never really knew what half of those settings did.
+
+I also tried a few Jellyfin clients for my library. Not the best experience, to be honest.
+
+So I thought, why not just make my own. Yes, yet another media player. This is my take on it:
+mpv doing the playback, and a library and player on top that I actually enjoy using.
 
 ## Download
 
-1. Go to the [**Releases**](../../releases) page and download **`IrisMediaPlayer-win-Setup.exe`**
-   from the latest release.
-2. Run it. Iris installs in a few seconds and opens. No admin rights or extra downloads needed.
+Grab `IrisMediaPlayer-win-Setup.exe` from the [Releases](../../releases) page and run it. It
+installs in a few seconds and opens Iris. No admin rights, nothing else to install.
 
-> **"Windows protected your PC"?** Iris isn't code-signed yet, so Windows shows this the first
-> time. Click **More info**, then **Run anyway**.
+Windows will probably show "Windows protected your PC" the first time. That's just because the
+app isn't code-signed yet. Click **More info**, then **Run anyway**.
 
-Iris keeps itself up to date. When a new version is out, it downloads it in the background and
-asks you to restart, or installs it the next time you open Iris.
+Iris updates itself. When I put out a new version, it downloads it in the background and asks
+you to restart (or just installs it the next time you open it).
 
-Works on **Windows 10 and Windows 11** (64-bit).
+Runs on Windows 10 and 11, 64-bit.
 
-## What you can do
+## What it does right now
 
-**Build your library**
-- Add your video folders and Iris finds every video inside them, with thumbnails.
-- **Home** shows what you were watching, what's new and what you played recently.
-- Browse by video or by folder, filter (4K, in progress, unwatched) and search everything.
-- Make **collections**, your own playlists from any videos, wherever they're stored.
-- Right-click any video to add it to a collection, open its folder, see its details, or delete it.
+**Library**
+- Add your folders and it finds all the videos inside, with thumbnails.
+- Home shows what you were watching, what's new and what you played recently.
+- Browse by video or by folder, filter by 4K, in progress or unwatched, and search everything.
+- Make collections, basically your own playlists from any videos, wherever they are.
+- Right-click a video to add it to a collection, open its folder, see its details or delete it.
 
-**Watch**
-- Plays almost any format, smoothly, using the [mpv](https://mpv.io) engine.
-- **Resumes** where you stopped, and moves on to the next video in the folder automatically.
-- Switch **audio and subtitle** tracks, load your own subtitle files and fix out-of-sync subtitles.
-- Jump between **chapters** in movies that have them.
+**Watching**
+- Plays almost any format smoothly, since [mpv](https://mpv.io) is doing the actual playback.
+- Remembers where you stopped, and moves on to the next video in the folder.
+- Switch audio and subtitle tracks, load your own subtitle files, and fix subtitles that are out of sync.
+- Jump between chapters if the movie has them.
 - Change speed, zoom (fit, fill or stretch), crop and aspect ratio.
-- Pop out a **mini player** that stays on top while you do other things.
-- Scroll the mouse wheel over the video to change the volume.
+- Mini player that stays on top while you do other stuff.
+- Scroll over the video to change the volume.
 
-**Open videos from anywhere**
-- Right-click a video in File Explorer and choose **Open with › Iris**, or drag a file onto Iris.
-- To make Iris your default player, choose it in **Settings › Apps › Default apps**.
+**Opening files**
+- Right-click a video in File Explorer and pick **Open with › Iris**, or just drag it onto Iris.
+- If you want it as your default player, set it in **Settings › Apps › Default apps**.
 
 ## Keyboard shortcuts
 
 | Key | What it does |
 | --- | --- |
-| Space | Play or pause |
-| ← / → | Back or forward 5 seconds |
-| J / L | Back or forward 10 seconds |
+| Space | Play / pause |
+| ← / → | Back / forward 5 seconds |
+| J / L | Back / forward 10 seconds |
 | ↑ / ↓ or mouse wheel | Volume |
 | M | Mute |
 | F | Fullscreen |
-| V | Subtitles on or off |
+| V | Subtitles on / off |
 | I | Mini player |
-| Page Up / Page Down | Previous or next chapter |
-| Shift+P / Shift+N | Previous or next video |
+| Page Up / Page Down | Previous / next chapter |
+| Shift+P / Shift+N | Previous / next video |
 | C | Change zoom |
-| Z / X | Move subtitles earlier or later |
+| Z / X | Subtitles earlier / later |
 | Esc | Go back |
-| Ctrl+K | Search your library |
+| Ctrl+K | Search the library |
 | Ctrl+O | Open a video file |
 
-## Good to know
+## Other stuff
 
-- Your library, collections and resume points are saved on your PC in `%LocalAppData%\Iris`.
-- To uninstall, go to **Settings › Apps › Installed apps**. Your library is kept, in case you
+- Your library, collections and resume points are saved in `%LocalAppData%\Iris`.
+- You can uninstall it from **Settings › Apps › Installed apps**. Your library stays, in case you
   come back.
-- **Coming later:** streaming from your Jellyfin server.
+- Next on my list is Jellyfin support, so you can stream from your server.
 
-Iris is a work in progress, so expect it to keep changing.
+It's still a work in progress, so things will keep changing as I go.
 
 ---
 
-## For developers
+## If you want to build it yourself
 
-Iris is built with C#, .NET 8, WinUI 3 and [mpv](https://mpv.io), and is installed and updated
-with [Velopack](https://velopack.io).
+It's C#, .NET 8 and WinUI 3, with [mpv](https://mpv.io) for playback and
+[Velopack](https://velopack.io) for installing and updating.
 
-**Run it from source**
+**Running it**
 
 1. Install Visual Studio with the **WinUI application development** workload.
-2. Open `Iris-MediaPlayer.slnx`, pick `x64` and press **F5**.
+2. Open `Iris-MediaPlayer.slnx`, pick `x64` and hit **F5**.
 
-**Make a release**
-
-1. Raise the version in `Iris-MediaPlayer/Iris-MediaPlayer.csproj` (`<Version>`).
-3. Create a new release on GitHub and upload **everything** in `artifacts\releases`.
-
-Installed copies of Iris pick up the new release on their next start.
-
-**Project layout**
+**What's where**
 
 ```text
 Iris-MediaPlayer/          the app
-THIRD-PARTY-NOTICES.md     licences of the libraries Iris uses
+THIRD-PARTY-NOTICES.md     licences for the libraries Iris uses
 ```
