@@ -13,8 +13,11 @@ namespace Iris_MediaPlayer.Services;
 /// </summary>
 internal static class Installation
 {
-    /// <summary>Releases are published here; the app downloads updates from its GitHub Releases.</summary>
-    public const string ReleasesUrl = "https://github.com/imujjwalaryan/Iris-Media-Center-WinUI";
+    /// <summary>
+    /// Where releases are published (the Iris-1 folder of the Cloudflare R2 bucket behind the
+    /// website). Iris reads releases.win.json here to find updates; build-installer.ps1 uploads to it.
+    /// </summary>
+    public const string UpdatesUrl = "https://www.ryujininteractive.com/Iris-1/";
 
     private const string ProgId = "Iris.Video";
     private const string ExeName = "Iris-MediaPlayer.exe";

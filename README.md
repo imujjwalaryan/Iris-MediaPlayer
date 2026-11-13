@@ -18,8 +18,8 @@ mpv doing the playback, and a library and player on top that I actually enjoy us
 
 ## Download
 
-Grab `IrisMediaPlayer-win-Setup.exe` from the [Releases](../../releases) page and run it. It
-installs in a few seconds and opens Iris. No admin rights, nothing else to install.
+Grab the setup from [ryujininteractive.com](https://www.ryujininteractive.com/Iris-1/IrisMediaPlayer-win-Setup.exe)
+and run it. It installs in a few seconds and opens Iris. No admin rights, nothing else to install.
 
 Windows will probably show "Windows protected your PC" the first time. That's just because the
 app isn't code-signed yet. Click **More info**, then **Run anyway**.

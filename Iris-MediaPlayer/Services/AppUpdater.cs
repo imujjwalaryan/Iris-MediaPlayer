@@ -6,20 +6,20 @@ using Velopack.Sources;
 namespace Iris_MediaPlayer.Services;
 
 /// <summary>
-/// Keeps an installed Iris up to date from the project's GitHub Releases. The new version is
+/// Keeps an installed Iris up to date from the release folder on ryujininteractive.com. The new version is
 /// downloaded quietly in the background; the user chooses when to restart into it, and if they
 /// never do, it is installed the next time Iris starts.
 /// Does nothing when Iris wasn't installed by IrisSetup.exe (running from Visual Studio, say).
 /// </summary>
 internal sealed class AppUpdater
 {
-    private readonly UpdateManager _manager = new(new GithubSource(Installation.ReleasesUrl, null, prerelease: false));
+    private readonly UpdateManager _manager = new(new SimpleWebSource(Installation.UpdatesUrl));
     private UpdateInfo? _ready;
 
     /// <summary>The version that is downloaded and waiting, or null.</summary>
     public string? ReadyVersion => _ready?.TargetFullRelease.Version.ToString();
 
-    /// <summary>Checks GitHub and downloads a newer release. Returns true when one is ready to install.</summary>
+    /// <summary>Checks the website and downloads a newer release. Returns true when one is ready to install.</summary>
     public async Task<bool> DownloadUpdateAsync()
     {
         if (!_manager.IsInstalled)
