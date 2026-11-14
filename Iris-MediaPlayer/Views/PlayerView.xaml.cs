@@ -30,7 +30,6 @@ namespace Iris_MediaPlayer.Views;
 /// </summary>
 public sealed partial class PlayerView : UserControl
 {
-    private const int AutoplayCountdownSeconds = 5;
     private const double ProgressSaveIntervalSeconds = 5;
     private const double PreviousRestartThresholdSeconds = 5;
     private const double SheetWidth = 384;
@@ -63,6 +62,9 @@ public sealed partial class PlayerView : UserControl
     private int _queueIndex;
     private MediaItem? _currentMedia;
     private double _resumedFrom;
+
+    /// <summary>With "Ask" resume: the saved point offered through the banner's Resume button.</summary>
+    private double _offeredResumeAt;
 
     // Playback state reported by mpv
     private bool _isFileLoaded;
@@ -109,7 +111,7 @@ public sealed partial class PlayerView : UserControl
         InitializeComponent();
 
         var dispatcher = DispatcherQueue.GetForCurrentThread()!;
-        _controlsHideTimer = CreateTimer(dispatcher, TimeSpan.FromSeconds(3), ControlsHideTimer_Tick);
+        _controlsHideTimer = CreateTimer(dispatcher, TimeSpan.FromSeconds(PlayerSettings.ControlsHideSeconds), ControlsHideTimer_Tick);
         _singleTapTimer = CreateTimer(dispatcher, TimeSpan.FromMilliseconds(250), (_, _) => TogglePause());
         _resumeBannerTimer = CreateTimer(dispatcher, TimeSpan.FromSeconds(8), (_, _) => HideResumeBanner());
         _osdTimer = CreateTimer(dispatcher, TimeSpan.FromSeconds(1.5), (_, _) => OsdBanner.Visibility = Visibility.Collapsed);
@@ -310,7 +312,11 @@ public sealed partial class PlayerView : UserControl
 
         _queueIndex = index;
         _currentMedia = _queue[index];
-        _resumedFrom = _store?.GetResumePosition(_currentMedia) ?? 0;
+        // Settings › Playback › Resume decides whether the saved point is used, offered or ignored.
+        var savedPosition = _store?.GetResumePosition(_currentMedia) ?? 0;
+        var resumeMode = PlayerSettings.Resume;
+        _resumedFrom = resumeMode == ResumeMode.Always ? savedPosition : 0;
+        _offeredResumeAt = resumeMode == ResumeMode.Ask ? savedPosition : 0;
 
         _isFileLoaded = false;
         _isAtEnd = false;
@@ -333,6 +339,9 @@ public sealed partial class PlayerView : UserControl
         UpdateTimes();
         UpdateQueueControls();
         ResetPerFileSettings();
+        AutoplayToggle.IsOn = PlayerSettings.AutoplayNext;
+        if (PlayerSettings.ZoomMode != _zoomMode)
+            SetZoomMode(PlayerSettings.ZoomMode);
         ShowPoster(_currentMedia, fromCard);
         ShowControlsTemporarily();
 
@@ -498,10 +507,30 @@ public sealed partial class PlayerView : UserControl
         }
     }
 
+    /// <summary>
+    /// Applies the Settings page's preferences that mpv needs told about: default speed, subtitle
+    /// size and the preferred subtitle and audio languages. Runs before each file loads, so
+    /// changes made in Settings take effect on the next video.
+    /// </summary>
+    private void ApplyPreferences()
+    {
+        TryMpv(mpv =>
+        {
+            mpv.SetSpeed(PlayerSettings.DefaultSpeed);
+            mpv.SetSubtitleScale(PlayerSettings.SubtitleScale);
+            mpv.SetPreferredLanguages(
+                PlayerSettings.SubtitleLanguage == PlayerSettings.SubtitlesOff ? string.Empty : PlayerSettings.SubtitleLanguage,
+                PlayerSettings.AudioLanguage,
+                PlayerSettings.SubtitleLanguage == PlayerSettings.SubtitlesOff);
+        });
+    }
+
     private void LoadCurrentMedia()
     {
         if (_mpv is null || _currentMedia is null)
             return;
+
+        ApplyPreferences();
 
         try
         {
@@ -603,6 +632,8 @@ public sealed partial class PlayerView : UserControl
             _store?.RecordRecent(_currentMedia);
         if (_resumedFrom > 0)
             ShowResumeBanner();
+        else if (_offeredResumeAt > 0)
+            ShowResumeOffer();
     }
 
     // ---------- Progress and resume ----------
@@ -626,10 +657,32 @@ public sealed partial class PlayerView : UserControl
     private void ShowResumeBanner()
     {
         ResumeBannerText.Text = $"Resumed from {FormatTime(_resumedFrom)}";
+        StartOverButton.Visibility = Visibility.Visible;
+        ResumeOfferButton.Visibility = Visibility.Collapsed;
         ResumeBanner.Visibility = Visibility.Visible;
         Motion.EnterFromBelow(ResumeBanner, TimeSpan.Zero, 16);
         _resumeBannerTimer.Stop();
         _resumeBannerTimer.Start();
+    }
+
+    /// <summary>"Ask" resume: the video started from the beginning; offer to jump to where it stopped.</summary>
+    private void ShowResumeOffer()
+    {
+        ResumeBannerText.Text = $"You stopped at {FormatTime(_offeredResumeAt)}";
+        StartOverButton.Visibility = Visibility.Collapsed;
+        ResumeOfferButton.Visibility = Visibility.Visible;
+        ResumeBanner.Visibility = Visibility.Visible;
+        Motion.EnterFromBelow(ResumeBanner, TimeSpan.Zero, 16);
+        _resumeBannerTimer.Stop();
+        _resumeBannerTimer.Start();
+    }
+
+    private void ResumeOffer_Click(object sender, RoutedEventArgs e)
+    {
+        var position = _offeredResumeAt;
+        HideResumeBanner();
+        TryMpv(mpv => mpv.Seek(position));
+        Focus(FocusState.Programmatic);
     }
 
     private void HideResumeBanner()
@@ -672,7 +725,7 @@ public sealed partial class PlayerView : UserControl
 
     private void ShowAutoplayCountdown()
     {
-        _autoplaySecondsLeft = AutoplayCountdownSeconds;
+        _autoplaySecondsLeft = PlayerSettings.AutoplayCountdownSeconds;
         ShowUpNextCard(NextMedia!, "UP NEXT", countdown: true);
         UpNextPlayButton.Visibility = Visibility.Visible;
         UpNextCancelButton.Visibility = Visibility.Visible;
@@ -711,7 +764,7 @@ public sealed partial class PlayerView : UserControl
         {
             From = 0,
             To = UpNextRingStroke.StrokeDashArray.FirstOrDefault(),
-            Duration = TimeSpan.FromSeconds(AutoplayCountdownSeconds),
+            Duration = TimeSpan.FromSeconds(PlayerSettings.AutoplayCountdownSeconds),
             EnableDependentAnimation = true
         };
         Storyboard.SetTarget(animation, UpNextRingStroke);
@@ -938,9 +991,9 @@ public sealed partial class PlayerView : UserControl
         Canvas.SetLeft(SeekPreviewBadge, Math.Clamp(x - badgeWidth / 2, 0, Math.Max(0, width - badgeWidth)));
     }
 
-    private void SeekBackward_Click(object sender, RoutedEventArgs e) => SeekBy(-10);
+    private void SeekBackward_Click(object sender, RoutedEventArgs e) => SeekBy(-PlayerSettings.LargeSkipSeconds);
 
-    private void SeekForward_Click(object sender, RoutedEventArgs e) => SeekBy(10);
+    private void SeekForward_Click(object sender, RoutedEventArgs e) => SeekBy(PlayerSettings.LargeSkipSeconds);
 
     private void SeekBy(double seconds)
     {
@@ -1429,7 +1482,7 @@ public sealed partial class PlayerView : UserControl
 
     // ---------- Volume with the mouse wheel ----------
 
-    /// <summary>Scrolling over the video changes the volume, 5% per notch.</summary>
+    /// <summary>Scrolling over the video changes the volume, by the step chosen in Settings per notch.</summary>
     private void Player_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
         // Leave scrolling alone where it means something else: the settings sheet.
@@ -1442,7 +1495,7 @@ public sealed partial class PlayerView : UserControl
 
         if (_isMuted && delta > 0)
             TryMpv(mpv => mpv.SetMuted(false));
-        ChangeVolume(Math.Sign(delta) * 5 * Math.Max(1, Math.Abs(delta) / 120));
+        ChangeVolume(Math.Sign(delta) * PlayerSettings.WheelVolumeStep * Math.Max(1, Math.Abs(delta) / 120));
         e.Handled = true;
     }
 
@@ -1554,19 +1607,19 @@ public sealed partial class PlayerView : UserControl
                 TogglePause();
                 break;
             case VirtualKey.Left:
-                SeekBy(-5);
+                SeekBy(-PlayerSettings.SmallSkipSeconds);
                 ShowControlsTemporarily();
                 break;
             case VirtualKey.Right:
-                SeekBy(5);
+                SeekBy(PlayerSettings.SmallSkipSeconds);
                 ShowControlsTemporarily();
                 break;
             case VirtualKey.J:
-                SeekBy(-10);
+                SeekBy(-PlayerSettings.LargeSkipSeconds);
                 ShowControlsTemporarily();
                 break;
             case VirtualKey.L:
-                SeekBy(10);
+                SeekBy(PlayerSettings.LargeSkipSeconds);
                 ShowControlsTemporarily();
                 break;
             case VirtualKey.Up:
@@ -1704,6 +1757,7 @@ public sealed partial class PlayerView : UserControl
             return;
         SetControlsVisible(true);
         _controlsHideTimer.Stop();
+        _controlsHideTimer.Interval = TimeSpan.FromSeconds(PlayerSettings.ControlsHideSeconds);
         _controlsHideTimer.Start();
     }
 
@@ -1768,12 +1822,12 @@ public sealed partial class PlayerView : UserControl
             return;
 
         var height = PlayerRoot.ActualHeight;
-        var percent = 100d;
+        var percent = 100d - PlayerSettings.SubtitleLift;
         if (_controlsVisible && !_isMini && height > 0)
         {
             // The strip's top padding is only the fade; keep subtitles just above the time row.
             var covered = PlayerControlsBar.ActualHeight - PlayerControlsBar.Padding.Top + 16;
-            percent = 100 * (1 - covered / height);
+            percent = Math.Min(percent, 100 * (1 - covered / height));
         }
 
         try

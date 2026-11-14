@@ -149,9 +149,14 @@ public sealed class LibraryStore : IDisposable
         }
     }
 
+    /// <summary>Starts or stops watching the library folders after the setting changed.</summary>
+    public void ApplyWatchSetting() => ConfigureFolderWatchers();
+
     private void ConfigureFolderWatchers()
     {
         DisposeWatchers();
+        if (!AppSettings.WatchFolders)
+            return;
 
         foreach (var path in _folderPaths.Where(Directory.Exists))
         {
@@ -349,6 +354,40 @@ public sealed class LibraryStore : IDisposable
             }
         });
         await Task.WhenAll(tasks);
+    }
+
+    /// <summary>
+    /// Drops the in-memory thumbnails and backdrops and loads them again. Iris keeps no image files
+    /// of its own (Windows caches thumbnails), so this is what "Clear thumbnail cache" can do.
+    /// </summary>
+    public void ClearImageCache()
+    {
+        _backdrops.Clear();
+        var known = _allMedia.Concat(_oneOffMedia.Values).Concat(ContinueWatching).Concat(RecentMedia).Distinct().ToList();
+        foreach (var media in known)
+            media.Thumbnail = null;
+        _ = LoadThumbnailsAsync(known);
+    }
+
+    /// <summary>
+    /// Forgets the library: folders, collections, Recently played and Continue watching. The videos
+    /// themselves are never touched. App settings (Settings page) are kept.
+    /// </summary>
+    public async Task ResetLibraryAsync()
+    {
+        _folderPaths.Clear();
+        SaveFolderPaths();
+
+        _recentFilePaths.Clear();
+        AppStorage.SetString(RecentFilesSettingsKey, null);
+
+        Collections.Clear();
+        SaveCollections();
+        CollectionsChanged?.Invoke();
+
+        ClearContinueWatching();
+        _oneOffMedia.Clear();
+        await RefreshAsync(showBusy: false);
     }
 
     // ---------- Recently played ----------

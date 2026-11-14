@@ -278,6 +278,37 @@ internal sealed class MpvPlayback : IDisposable
 
     public void SetSpeed(double speed) => SetDouble("speed", speed, "set playback speed");
 
+    /// <summary>Subtitle text size as a multiple of mpv's default (1 = normal).</summary>
+    public void SetSubtitleScale(double scale) => SetDouble("sub-scale", Math.Clamp(scale, 0.3, 4), "set subtitle size");
+
+    /// <summary>
+    /// Tells mpv which languages to pick automatically for the next file. <paramref name="subtitles"/>
+    /// and <paramref name="audio"/> are comma-separated language codes ("en,eng"), or empty to
+    /// leave mpv's own choice. <paramref name="subtitlesOff"/> starts without subtitles.
+    /// </summary>
+    public void SetPreferredLanguages(string subtitles, string audio, bool subtitlesOff)
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (subtitlesOff)
+            {
+                ThrowIfError(MpvNative.mpv_set_property_string(_handle, "sid", "no"), "turn off subtitles");
+            }
+            else if (subtitles.Length > 0)
+            {
+                ThrowIfError(MpvNative.mpv_set_property_string(_handle, "slang", subtitles), "set subtitle language");
+                ThrowIfError(MpvNative.mpv_set_property_string(_handle, "sid", "auto"), "select subtitles automatically");
+            }
+
+            if (audio.Length > 0)
+            {
+                ThrowIfError(MpvNative.mpv_set_property_string(_handle, "alang", audio), "set audio language");
+                ThrowIfError(MpvNative.mpv_set_property_string(_handle, "aid", "auto"), "select audio automatically");
+            }
+        }
+    }
+
     public void SetAudioTrack(long trackId) => SetTrack("aid", trackId);
 
     public void SetSubtitleTrack(long trackId) => SetTrack("sid", trackId);

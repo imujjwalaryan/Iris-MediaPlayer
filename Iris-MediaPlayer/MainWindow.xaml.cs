@@ -37,6 +37,8 @@ public sealed partial class MainWindow : Window
         _sectionBeforePlayer = HomePage;
 
         _store = new LibraryStore(DispatcherQueue);
+        // Only a scan the user asked for (adding a folder) greys out the rail. The startup scan below
+        // passes showBusy: false, so Iris stays usable while it runs.
         _store.ScanningChanged += isScanning => Rail.IsHitTestVisible = !isScanning;
 
         HomePage.Initialize(_store);
@@ -53,6 +55,10 @@ public sealed partial class MainWindow : Window
         LibraryPage.PlayRequested += (_, request) => StartPlayback(request);
         LibraryPage.AddFolderRequested += (_, _) => PickAndAddFolder();
 
+        SettingsPage.Initialize(_store, _updater);
+        SettingsPage.AddFolderRequested += (_, _) => PickAndAddFolder();
+        SettingsPage.RestartRequested += (_, _) => RestartToUpdate();
+
         PlayerPage.Initialize(_store);
         PlayerPage.BackRequested += (_, _) => ReturnFromPlayer();
         PlayerPage.FullscreenToggleRequested += (_, _) => SetPlayerFullscreen(!_isPlayerFullscreen);
@@ -67,7 +73,7 @@ public sealed partial class MainWindow : Window
         Rail.Loaded += async (_, _) =>
         {
             SelectRail(HomeRailButton, animate: false);
-            await _store.RefreshAsync();
+            await _store.RefreshAsync(showBusy: false);
             _ = CheckForUpdateAsync();
         };
         // Settings sits at the bottom of the rail, so its plate position changes with the window height.
@@ -98,8 +104,7 @@ public sealed partial class MainWindow : Window
                 break;
             case "Settings":
                 SelectRail(button);
-                ShowPlaceholder("", "Settings are on the way",
-                    "Player options live in the playback sheet while a video plays. App-wide settings will land here.");
+                ShowSection(SettingsPage);
                 break;
             default:
                 SelectRail(HomeRailButton);
@@ -158,6 +163,7 @@ public sealed partial class MainWindow : Window
         HomePage.Visibility = section == HomePage ? Visibility.Visible : Visibility.Collapsed;
         LibraryPage.Visibility = section == LibraryPage ? Visibility.Visible : Visibility.Collapsed;
         PlaceholderPage.Visibility = section == PlaceholderPage ? Visibility.Visible : Visibility.Collapsed;
+        SettingsPage.Visibility = section == SettingsPage ? Visibility.Visible : Visibility.Collapsed;
         PlayerPage.Visibility = section == PlayerPage ? Visibility.Visible : Visibility.Collapsed;
         TopBar.Visibility = section == HomePage || section == PlaceholderPage ? Visibility.Visible : Visibility.Collapsed;
         HomePage.IsActive = section == HomePage;
@@ -457,8 +463,11 @@ public sealed partial class MainWindow : Window
     /// <summary>Looks for a new release shortly after startup and offers it once it has downloaded.</summary>
     private async System.Threading.Tasks.Task CheckForUpdateAsync()
     {
+        if (!AppSettings.AutoUpdate)
+            return;
+
         await System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(5));
-        if (!await _updater.DownloadUpdateAsync())
+        if (!AppSettings.AutoUpdate || !await _updater.DownloadUpdateAsync())
             return;
 
         UpdateTitle.Text = $"Iris {_updater.ReadyVersion} is ready";
@@ -468,7 +477,9 @@ public sealed partial class MainWindow : Window
 
     private void UpdateLater_Click(object sender, RoutedEventArgs e) => UpdateCard.Visibility = Visibility.Collapsed;
 
-    private void UpdateRestart_Click(object sender, RoutedEventArgs e)
+    private void UpdateRestart_Click(object sender, RoutedEventArgs e) => RestartToUpdate();
+
+    private void RestartToUpdate()
     {
         // Save the resume point of anything playing before Iris closes.
         PlayerPage.Stop();

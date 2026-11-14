@@ -27,4 +27,89 @@ internal static class PlayerSettings
         get => AppStorage.GetBool(AutoplayNextKey) ?? true;
         set => AppStorage.SetBool(AutoplayNextKey, value);
     }
+
+    // ---------- Playback ----------
+
+    public static int AutoplayCountdownSeconds
+    {
+        get => Math.Clamp((int)(AppStorage.GetDouble("PlayerAutoplayCountdown") ?? 5), 1, 30);
+        set => AppStorage.SetDouble("PlayerAutoplayCountdown", Math.Clamp(value, 1, 30));
+    }
+
+    public static ResumeMode Resume
+    {
+        get => Enum.TryParse<ResumeMode>(AppStorage.GetString("PlayerResumeMode"), out var mode) ? mode : ResumeMode.Always;
+        set => AppStorage.SetString("PlayerResumeMode", value.ToString());
+    }
+
+    /// <summary>Speed every new player starts at; the speed buttons in the player still change it per session.</summary>
+    public static double DefaultSpeed
+    {
+        get => Math.Clamp(AppStorage.GetDouble("PlayerDefaultSpeed") ?? 1, 0.25, 4);
+        set => AppStorage.SetDouble("PlayerDefaultSpeed", Math.Clamp(value, 0.25, 4));
+    }
+
+    /// <summary>Seconds skipped by the Left and Right arrow keys.</summary>
+    public static int SmallSkipSeconds
+    {
+        get => Math.Clamp((int)(AppStorage.GetDouble("PlayerSmallSkip") ?? 5), 1, 120);
+        set => AppStorage.SetDouble("PlayerSmallSkip", Math.Clamp(value, 1, 120));
+    }
+
+    /// <summary>Seconds skipped by J and L and the skip buttons in the player.</summary>
+    public static int LargeSkipSeconds
+    {
+        get => Math.Clamp((int)(AppStorage.GetDouble("PlayerLargeSkip") ?? 10), 1, 300);
+        set => AppStorage.SetDouble("PlayerLargeSkip", Math.Clamp(value, 1, 300));
+    }
+
+    // ---------- Subtitles and audio ----------
+
+    /// <summary>
+    /// Preferred subtitle language as mpv language codes ("en,eng"), empty for mpv's own choice,
+    /// or <see cref="SubtitlesOff"/> to start without subtitles.
+    /// </summary>
+    public static string SubtitleLanguage
+    {
+        get => AppStorage.GetString("PlayerSubtitleLanguage") ?? string.Empty;
+        set => AppStorage.SetString("PlayerSubtitleLanguage", string.IsNullOrEmpty(value) ? null : value);
+    }
+
+    public const string SubtitlesOff = "off";
+
+    public static string AudioLanguage
+    {
+        get => AppStorage.GetString("PlayerAudioLanguage") ?? string.Empty;
+        set => AppStorage.SetString("PlayerAudioLanguage", string.IsNullOrEmpty(value) ? null : value);
+    }
+
+    /// <summary>Subtitle text size as a multiple of mpv's default (1 = normal).</summary>
+    public static double SubtitleScale
+    {
+        get => Math.Clamp(AppStorage.GetDouble("PlayerSubtitleScale") ?? 1, 0.5, 3);
+        set => AppStorage.SetDouble("PlayerSubtitleScale", Math.Clamp(value, 0.5, 3));
+    }
+
+    /// <summary>How far subtitles sit above the bottom edge, as a percentage of the window height.</summary>
+    public static double SubtitleLift
+    {
+        get => Math.Clamp(AppStorage.GetDouble("PlayerSubtitleLift") ?? 0, 0, 30);
+        set => AppStorage.SetDouble("PlayerSubtitleLift", Math.Clamp(value, 0, 30));
+    }
+
+    // ---------- Player ----------
+
+    /// <summary>Seconds of no mouse movement before the controls hide.</summary>
+    public static double ControlsHideSeconds
+    {
+        get => Math.Clamp(AppStorage.GetDouble("PlayerControlsHideSeconds") ?? 3, 1, 30);
+        set => AppStorage.SetDouble("PlayerControlsHideSeconds", Math.Clamp(value, 1, 30));
+    }
+
+    /// <summary>Volume percentage per mouse-wheel notch.</summary>
+    public static int WheelVolumeStep
+    {
+        get => Math.Clamp((int)(AppStorage.GetDouble("PlayerWheelVolumeStep") ?? 5), 1, 25);
+        set => AppStorage.SetDouble("PlayerWheelVolumeStep", Math.Clamp(value, 1, 25));
+    }
 }

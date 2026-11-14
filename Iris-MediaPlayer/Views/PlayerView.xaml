@@ -141,7 +141,8 @@
                     BorderBrush="#14FFFFFF" BorderThickness="1">
                 <StackPanel Orientation="Horizontal" Spacing="14">
                     <TextBlock x:Name="ResumeBannerText" Text="Resumed" VerticalAlignment="Center" FontSize="13" />
-                    <Button Content="Start over" Style="{StaticResource IrisCtaQuietButtonStyle}" Click="StartOver_Click" />
+                    <Button x:Name="StartOverButton" Content="Start over" Style="{StaticResource IrisCtaQuietButtonStyle}" Click="StartOver_Click" />
+                    <Button x:Name="ResumeOfferButton" Content="Resume" Visibility="Collapsed" Style="{StaticResource IrisCtaQuietButtonStyle}" Click="ResumeOffer_Click" />
                 </StackPanel>
             </Border>
 

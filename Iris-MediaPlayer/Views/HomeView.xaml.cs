@@ -77,6 +77,8 @@ public sealed partial class HomeView : UserControl
         };
         store.RecentMediaChanged += Refresh;
         store.ContinueWatchingChanged += Refresh;
+        // "Hide Continue watching" in Settings takes effect straight away.
+        AppSettings.Changed += Refresh;
         Refresh();
     }
 
@@ -85,7 +87,8 @@ public sealed partial class HomeView : UserControl
         if (_store is null)
             return;
 
-        var continueWatching = _store.ContinueWatching;
+        // Hidden for good in Settings: no row and no "Continue watching" hero slides. Progress is still saved.
+        IReadOnlyList<MediaItem> continueWatching = AppSettings.HideContinueWatching ? [] : _store.ContinueWatching;
         var recentlyAdded = _store.GetRecentlyAdded(RowSize);
         var recentlyPlayed = _store.RecentMedia;
 
