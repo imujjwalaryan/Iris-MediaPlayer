@@ -34,6 +34,10 @@ public sealed partial class PlayerView : UserControl
     private const double PreviousRestartThresholdSeconds = 5;
     private const double SheetWidth = 384;
     private const double DelayLimitSeconds = 30;
+    // mpv's default subtitle size reads too large; the Settings page's "Normal" (1.0) maps to this.
+    private const double SubtitleBaseScale = 0.8;
+    // How far below their authored spot picture subtitles sit, in percent of the video height.
+    private const double PictureSubtitleDrop = 3;
 
     private const string PlayGlyph = "";
     private const string PauseGlyph = "";
@@ -237,6 +241,7 @@ public sealed partial class PlayerView : UserControl
         {
             _mpv.AddSubtitle(filePath);
             RefreshTrackOptions();
+            UpdateSubtitlePosition();
             ShowOsd($"Subtitles: {Path.GetFileName(filePath)}");
         }
         catch (Exception exception)
@@ -517,7 +522,7 @@ public sealed partial class PlayerView : UserControl
         TryMpv(mpv =>
         {
             mpv.SetSpeed(PlayerSettings.DefaultSpeed);
-            mpv.SetSubtitleScale(PlayerSettings.SubtitleScale);
+            mpv.SetSubtitleScale(PlayerSettings.SubtitleScale * SubtitleBaseScale);
             mpv.SetPreferredLanguages(
                 PlayerSettings.SubtitleLanguage == PlayerSettings.SubtitlesOff ? string.Empty : PlayerSettings.SubtitleLanguage,
                 PlayerSettings.AudioLanguage,
@@ -587,6 +592,10 @@ public sealed partial class PlayerView : UserControl
                     ShowControlsTemporarily();
                 }
                 UpdateMiniChrome(animate: true);
+                break;
+            case "osd-dimensions":
+                // The video moved or resized inside the window (resize, zoom, a new video).
+                UpdateSubtitlePosition();
                 break;
             case "eof-reached" when value is bool atEnd:
                 OnEndReachedChanged(atEnd);
@@ -1343,6 +1352,8 @@ public sealed partial class PlayerView : UserControl
         if (trackId >= 0)
             _lastSubtitleId = trackId;
         BuildTrackRows();
+        // Text and picture subtitles are positioned differently.
+        UpdateSubtitlePosition();
     }
 
     private void SelectAudio(long trackId)
@@ -1821,13 +1832,23 @@ public sealed partial class PlayerView : UserControl
         if (_mpv is null || !_isFileLoaded)
             return;
 
+        // Plain text subtitles are placed in the whole window; picture (Blu-ray/DVD) and ASS subtitles
+        // inside the video, and sub-pos moves those by a percentage of the video height, not the window's.
+        var frame = _mpv.GetSubtitleFrame() ?? new SubtitleFrame(false, 0, 1);
+        if (frame.Height <= 0)
+            return;
+
+        // At rest, picture subtitles drop a little towards the bottom of the video (mpv stops them at the edge).
+        var percent = 100d - PlayerSettings.SubtitleLift + (frame.IsPicture ? PictureSubtitleDrop : 0);
         var height = PlayerRoot.ActualHeight;
-        var percent = 100d - PlayerSettings.SubtitleLift;
         if (_controlsVisible && !_isMini && height > 0)
         {
             // The strip's top padding is only the fade; keep subtitles just above the time row.
-            var covered = PlayerControlsBar.ActualHeight - PlayerControlsBar.Padding.Top + 16;
-            percent = Math.Min(percent, 100 * (1 - covered / height));
+            var covered = (PlayerControlsBar.ActualHeight - PlayerControlsBar.Padding.Top + 16) / height;
+            // How far the bottom of the subtitle area reaches into the controls, as a share of the window.
+            var overlap = frame.Bottom - (1 - covered);
+            if (overlap > 0)
+                percent = Math.Min(percent, 100 * (1 - overlap / frame.Height));
         }
 
         try

@@ -69,6 +69,11 @@ internal sealed class MpvPlayback : IDisposable
             SetOption("osc", "no");
             SetOption("osd-level", "0");
             SetOption("input-default-bindings", "no");
+            // Text subtitles sit a little closer to the bottom edge than mpv's default (34).
+            SetOption("sub-margin-y", "22");
+            // After a seek, show the subtitle line already in progress instead of waiting for the next one,
+            // even in files without a subtitle index.
+            SetOption("demuxer-mkv-subtitle-preroll", "yes");
 
             var result = MpvNative.mpv_initialize(_handle);
             ThrowIfError(result, "initialize mpv");
@@ -88,6 +93,8 @@ internal sealed class MpvPlayback : IDisposable
             // With keep-open=yes mpv pauses on the last frame instead of ending the file,
             // so end of playback is reported through this property.
             Observe("eof-reached", FlagFormat);
+            // Where the video sits in the window; changes on resize, zoom and new videos.
+            Observe("osd-dimensions", (int)MpvPropertyFormat.String);
 
             _eventThread = new Thread(EventLoop)
             {
@@ -151,7 +158,37 @@ internal sealed class MpvPlayback : IDisposable
     /// Where subtitles sit, as a percentage of the window height (100 = bottom). Used to lift them
     /// above the player controls while those are showing.
     /// </summary>
-    public void SetSubtitlePosition(double percent) => SetDouble("sub-pos", Math.Round(Math.Clamp(percent, 0, 100)), "set subtitle position");
+    public void SetSubtitlePosition(double percent) => SetDouble("sub-pos", Math.Floor(Math.Clamp(percent, 0, 150) * 10) / 10, "set subtitle position");
+
+    /// <summary>
+    /// Describes what the current subtitles are positioned against, or null without subtitles or video.
+    /// Plain text subtitles (SRT, WebVTT…) are laid out in the whole window; picture subtitles (Blu-ray,
+    /// DVD) and styled ASS subtitles are laid out inside the video, and sub-pos moves them by a
+    /// percentage of the video height.
+    /// </summary>
+    public SubtitleFrame? GetSubtitleFrame()
+    {
+        lock (_gate)
+        {
+            if (_handle == IntPtr.Zero || _disposed)
+                return null;
+            var codec = GetStringProperty("current-tracks/sub/codec");
+            if (codec is null
+                || MpvNative.mpv_get_property(_handle, "osd-dimensions/h", Int64Format, out var height) < 0 || height <= 0
+                || MpvNative.mpv_get_property(_handle, "osd-dimensions/mt", Int64Format, out var top) < 0
+                || MpvNative.mpv_get_property(_handle, "osd-dimensions/mb", Int64Format, out var bottom) < 0)
+                return null;
+
+            var isPicture = PictureSubtitleCodecs.Contains(codec);
+            var followsVideo = isPicture || codec is "ass" or "ssa";
+            return followsVideo
+                ? new SubtitleFrame(isPicture, Top: (double)top / height, Height: (double)(height - top - bottom) / height)
+                : new SubtitleFrame(isPicture, Top: 0, Height: 1);
+        }
+    }
+
+    private static readonly HashSet<string> PictureSubtitleCodecs =
+        ["hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub", "dvb_teletext"];
 
     /// <summary>Overrides the video aspect ratio, for example "16:9". Pass "-1" to use the file's own ratio.</summary>
     public void SetAspectOverride(string aspect)
@@ -538,4 +575,13 @@ internal sealed class MpvPlayback : IDisposable
                 MpvNative.mpv_terminate_destroy(handle);
         }
     }
+}
+
+/// <summary>
+/// The area subtitles are laid out in, as fractions of the window height. <see cref="IsPicture"/> is
+/// true for picture subtitles (Blu-ray/DVD), whose size and position are drawn into the video.
+/// </summary>
+public sealed record SubtitleFrame(bool IsPicture, double Top, double Height)
+{
+    public double Bottom => Top + Height;
 }

@@ -83,7 +83,7 @@ internal static class PlayerSettings
         set => AppStorage.SetString("PlayerAudioLanguage", string.IsNullOrEmpty(value) ? null : value);
     }
 
-    /// <summary>Subtitle text size as a multiple of mpv's default (1 = normal).</summary>
+    /// <summary>Subtitle size chosen in Settings (1 = normal); the player scales it down a little, see PlayerView.SubtitleBaseScale.</summary>
     public static double SubtitleScale
     {
         get => Math.Clamp(AppStorage.GetDouble("PlayerSubtitleScale") ?? 1, 0.5, 3);
