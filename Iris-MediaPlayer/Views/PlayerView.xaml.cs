@@ -211,6 +211,7 @@ public sealed partial class PlayerView : UserControl
     public void Stop()
     {
         SaveProgress();
+        StopRemote();
         HideEndPanel();
         HideResumeBanner();
         SetSheetOpen(false);
@@ -292,6 +293,7 @@ public sealed partial class PlayerView : UserControl
     public void Shutdown()
     {
         SaveProgress();
+        StopRemote();
         foreach (var timer in new[] { _controlsHideTimer, _singleTapTimer, _resumeBannerTimer, _osdTimer, _autoplayTimer, _posterTimer })
             timer.Stop();
         SetCursorHidden(false);
@@ -312,6 +314,7 @@ public sealed partial class PlayerView : UserControl
     private void PlayQueueItem(int index, bool fromCard = false)
     {
         SaveProgress();
+        StopRemote();
         HideEndPanel();
         HideResumeBanner();
 
@@ -592,6 +595,7 @@ public sealed partial class PlayerView : UserControl
                 }
                 else
                 {
+                    SaveProgress();
                     ShowControlsTemporarily();
                 }
                 UpdateMiniChrome(animate: true);
@@ -644,6 +648,11 @@ public sealed partial class PlayerView : UserControl
         MuteButton.IsEnabled = true;
         LoadSubtitleButton.IsEnabled = true;
         ApplyStartTracks();
+        if (_currentMedia?.Remote is { } remote)
+        {
+            remote.ReportStarted(_resumedFrom, _isPaused);
+            _remoteStarted = true;
+        }
         RefreshTrackOptions();
         LoadChapters();
         UpdateQueueControls();
@@ -671,12 +680,53 @@ public sealed partial class PlayerView : UserControl
 
     private void SaveProgress()
     {
+        // Server videos keep their resume point on the server.
+        if (_currentMedia?.Remote is { } remote)
+        {
+            ReportRemote(remote);
+            return;
+        }
         if (_store is null || _currentMedia is null || _currentMedia.IsRemote || !_isFileLoaded || _durationSeconds <= 0)
             return;
 
         var position = _isAtEnd ? _durationSeconds : _positionSeconds;
         _store.SaveProgress(_currentMedia, position, _durationSeconds);
         _lastSavedPosition = _positionSeconds;
+    }
+
+    private bool _remoteStarted;
+
+    /// <summary>Start, progress and (at the end) stop reports for a server video.</summary>
+    private void ReportRemote(IRemotePlayback remote)
+    {
+        if (!_isFileLoaded)
+            return;
+
+        var position = Math.Max(0, _positionSeconds);
+        if (_isAtEnd)
+        {
+            if (_remoteStarted)
+                remote.ReportStopped(Math.Max(_durationSeconds, position));
+            _remoteStarted = false;
+        }
+        else if (!_remoteStarted)
+        {
+            remote.ReportStarted(position, _isPaused);
+            _remoteStarted = true;
+        }
+        else
+        {
+            remote.ReportProgress(position, _isPaused);
+        }
+        _lastSavedPosition = _positionSeconds;
+    }
+
+    /// <summary>Tells the server playback stopped (leaving the player or switching video).</summary>
+    private void StopRemote()
+    {
+        if (_currentMedia?.Remote is { } remote && _remoteStarted && _isFileLoaded)
+            remote.ReportStopped(_isAtEnd ? Math.Max(_durationSeconds, _positionSeconds) : _positionSeconds);
+        _remoteStarted = false;
     }
 
     private void ShowResumeBanner()

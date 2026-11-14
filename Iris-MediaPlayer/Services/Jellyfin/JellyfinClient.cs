@@ -302,6 +302,12 @@ public sealed class JellyfinClient
         }
     }
 
+    /// <summary>Posts a JSON body and ignores the answer (playback reports).</summary>
+    public async Task PostAsync(string path, string jsonBody)
+    {
+        using var _ = await SendAsync(HttpMethod.Post, path, jsonBody, CancellationToken.None, "report playback");
+    }
+
     // ---------- Links ----------
 
     /// <summary>

@@ -55,6 +55,7 @@ internal static class JellyfinUi
             ServerResumeSeconds = item.ResumeSeconds,
             StartAudioTrack = audioTrack,
             StartSubtitleTrack = subtitleTrack,
+            Remote = new JellyfinPlaybackReporter(client, item.Id, source?.Id ?? item.Id, null, null),
             Thumbnail = item.Image
         };
     }

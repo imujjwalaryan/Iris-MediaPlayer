@@ -384,6 +384,11 @@ public sealed partial class MainWindow : Window
         // ShowSection leaves player mode: fullscreen, mini player and playback all stop there.
         ShowSection(_sectionBeforePlayer);
         SelectRail(_railBeforePlayer ?? HomeRailButton, animate: false);
+        if (_sectionBeforePlayer == JellyfinPage)
+        {
+            JellyfinPage.Activate();
+            JellyfinPage.RefreshAfterPlayback();
+        }
     }
 
     /// <summary>The player covers the rail and the content frame; the title bar stays.</summary>

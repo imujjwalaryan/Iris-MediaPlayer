@@ -231,6 +231,29 @@ public sealed partial class JellyfinView : UserControl
         PlayRequested?.Invoke(this, new PlayRequest(media, queue.Count > 0 ? queue : [media]));
     }
 
+    /// <summary>
+    /// Back from the player: once the server has the playback reports, the page shown reloads so
+    /// progress bars, Continue watching and watched marks are up to date.
+    /// </summary>
+    public async void RefreshAfterPlayback()
+    {
+        if (_client is null || BrowseRoot.Visibility != Visibility.Visible)
+            return;
+        await JellyfinPlaybackReporter.WhenSentAsync();
+        switch (_current.Kind)
+        {
+            case "Home":
+                await HomePage.LoadAsync(_client, _libraries, CancellationToken.None);
+                break;
+            case "Library":
+                await LibraryPage.ReloadAsync();
+                break;
+            case "Details" when _current.Item is { } item:
+                await DetailsPage.ShowAsync(_client, item, quiet: true);
+                break;
+        }
+    }
+
     private async void Refresh_Click(object sender, RoutedEventArgs e)
     {
         switch (_current.Kind)

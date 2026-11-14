@@ -45,17 +45,25 @@ public sealed partial class JellyfinDetailsView : UserControl
     /// <summary>The title shown, for the Back button's label.</summary>
     public string? Title => _item?.Name;
 
-    public async Task ShowAsync(JellyfinClient client, JellyfinItem item)
+    /// <summary>
+    /// Shows <paramref name="item"/>. With <paramref name="quiet"/> (coming back from the player) the
+    /// page refreshes in place: same scroll position and season, no entrance animation.
+    /// </summary>
+    public async Task ShowAsync(JellyfinClient client, JellyfinItem item, bool quiet = false)
     {
+        var keepSeason = quiet ? SeasonTabs.SelectedIndex : -1;
         _client = client;
         _requested = item;
         _loading?.Cancel();
         var cancel = _loading = new CancellationTokenSource();
-        Body.Visibility = Visibility.Collapsed;
         Message.Visibility = Visibility.Collapsed;
-        BackdropImage.Source = null;
-        LoadingRing.IsActive = true;
-        PageScroller.ChangeView(null, 0, null, disableAnimation: true);
+        if (!quiet)
+        {
+            Body.Visibility = Visibility.Collapsed;
+            BackdropImage.Source = null;
+            LoadingRing.IsActive = true;
+            PageScroller.ChangeView(null, 0, null, disableAnimation: true);
+        }
         try
         {
             var full = await client.GetItemAsync(item.Id, cancel.Token);
@@ -64,16 +72,19 @@ public sealed partial class JellyfinDetailsView : UserControl
             _item = full;
             Fill(full);
             Body.Visibility = Visibility.Visible;
-            Motion.EnterFromBelow(PosterColumn, TimeSpan.Zero, 24);
-            var delay = 40;
-            foreach (var child in Info.Children.Where(child => child.Visibility == Visibility.Visible))
+            if (!quiet)
             {
-                Motion.EnterFromBelow(child, TimeSpan.FromMilliseconds(delay), 16);
-                delay += 40;
+                Motion.EnterFromBelow(PosterColumn, TimeSpan.Zero, 24);
+                var delay = 40;
+                foreach (var child in Info.Children.Where(child => child.Visibility == Visibility.Visible))
+                {
+                    Motion.EnterFromBelow(child, TimeSpan.FromMilliseconds(delay), 16);
+                    delay += 40;
+                }
             }
 
             if (full.Type == "Series")
-                await LoadSeasonsAsync(full, cancel.Token);
+                await LoadSeasonsAsync(full, keepSeason, cancel.Token);
         }
         catch (JellyfinException exception) when (!cancel.IsCancellationRequested)
         {
@@ -257,7 +268,7 @@ public sealed partial class JellyfinDetailsView : UserControl
 
     // ---------- Shows ----------
 
-    private async Task LoadSeasonsAsync(JellyfinItem series, CancellationToken cancel)
+    private async Task LoadSeasonsAsync(JellyfinItem series, int keepSeason, CancellationToken cancel)
     {
         var client = _client!;
         var seasonsTask = client.GetSeasonsAsync(series.Id, cancel);
@@ -276,7 +287,8 @@ public sealed partial class JellyfinDetailsView : UserControl
 
         PlayText.Text = _nextUp is { } next ? $"{(next.ResumeSeconds > 0 ? "Resume" : "Play")} {next.EpisodeCode}".Trim() : "Play";
         SeasonTabs.Items = _seasons.Select(season => season.Name).ToList();
-        var start = _nextUp?.SeasonId is { } nextSeason ? Math.Max(0, _seasons.ToList().FindIndex(season => season.Id == nextSeason)) : 0;
+        var start = keepSeason >= 0 && keepSeason < _seasons.Count ? keepSeason
+            : _nextUp?.SeasonId is { } nextSeason ? Math.Max(0, _seasons.ToList().FindIndex(season => season.Id == nextSeason)) : 0;
         if (_seasons.Count > 0)
         {
             SeasonTabs.SelectedIndex = start;

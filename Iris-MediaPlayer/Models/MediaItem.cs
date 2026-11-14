@@ -29,6 +29,9 @@ public sealed record MediaItem(
     /// <summary>mpv subtitle track to start with; -1 starts with subtitles off, null keeps mpv's choice.</summary>
     public long? StartSubtitleTrack { get; init; }
 
+    /// <summary>For server videos: reports playback back to the server (resume point, watched).</summary>
+    public IRemotePlayback? Remote { get; init; }
+
     /// <summary>True for videos streamed from a server rather than files on this PC.</summary>
     public bool IsRemote => StreamUrl is not null;
     public string FileFormat => FileExtension.TrimStart('.').ToUpperInvariant();
