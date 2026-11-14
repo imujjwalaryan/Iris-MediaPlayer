@@ -97,6 +97,7 @@
                 <views:HomeView x:Name="HomePage" />
                 <views:LibraryView x:Name="LibraryPage" Visibility="Collapsed" />
                 <views:PlaceholderView x:Name="PlaceholderPage" Visibility="Collapsed" />
+                <views:JellyfinView x:Name="JellyfinPage" Visibility="Collapsed" />
                 <views:SettingsView x:Name="SettingsPage" Visibility="Collapsed" />
 
                 <!-- Floating search and Open file, over Home's artwork. -->

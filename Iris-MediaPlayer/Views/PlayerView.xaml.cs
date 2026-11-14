@@ -318,7 +318,10 @@ public sealed partial class PlayerView : UserControl
         _queueIndex = index;
         _currentMedia = _queue[index];
         // Settings › Playback › Resume decides whether the saved point is used, offered or ignored.
-        var savedPosition = _store?.GetResumePosition(_currentMedia) ?? 0;
+        // Streamed videos resume from where the server says; local files from Iris's own record.
+        var savedPosition = _currentMedia.IsRemote
+            ? _currentMedia.ServerResumeSeconds
+            : _store?.GetResumePosition(_currentMedia) ?? 0;
         var resumeMode = PlayerSettings.Resume;
         _resumedFrom = resumeMode == ResumeMode.Always ? savedPosition : 0;
         _offeredResumeAt = resumeMode == ResumeMode.Ask ? savedPosition : 0;
@@ -539,7 +542,7 @@ public sealed partial class PlayerView : UserControl
 
         try
         {
-            _mpv.LoadFile(_currentMedia.FilePath, _resumedFrom);
+            _mpv.LoadFile(_currentMedia.StreamUrl ?? _currentMedia.FilePath, _resumedFrom);
         }
         catch (Exception exception)
         {
@@ -637,7 +640,8 @@ public sealed partial class PlayerView : UserControl
         ShowControlsTemporarily();
         UpdateSubtitlePosition();
 
-        if (_currentMedia is not null)
+        // Recently played and Continue watching are for files on this PC; server videos sync in a later version.
+        if (_currentMedia is { IsRemote: false })
             _store?.RecordRecent(_currentMedia);
         if (_resumedFrom > 0)
             ShowResumeBanner();
@@ -655,7 +659,7 @@ public sealed partial class PlayerView : UserControl
 
     private void SaveProgress()
     {
-        if (_store is null || _currentMedia is null || !_isFileLoaded || _durationSeconds <= 0)
+        if (_store is null || _currentMedia is null || _currentMedia.IsRemote || !_isFileLoaded || _durationSeconds <= 0)
             return;
 
         var position = _isAtEnd ? _durationSeconds : _positionSeconds;
@@ -1524,12 +1528,12 @@ public sealed partial class PlayerView : UserControl
     private void More_Click(object sender, RoutedEventArgs e)
     {
         var menu = new MenuFlyout();
-        if (_currentMedia is { } media)
+        if (_currentMedia is { IsRemote: false } media)
         {
             menu.Items.Add(CreateMenuItem("Show in File Explorer", "", async () =>
                 await Windows.System.Launcher.LaunchFolderPathAsync(media.FolderPath)));
         }
-        if (_currentMedia is { } current && _videoMenu is not null)
+        if (_currentMedia is { IsRemote: false } current && _videoMenu is not null)
         {
             menu.Items.Add(_videoMenu.CreateCollectionMenu(current));
             menu.Items.Add(_videoMenu.CreateDetailsItem(current));

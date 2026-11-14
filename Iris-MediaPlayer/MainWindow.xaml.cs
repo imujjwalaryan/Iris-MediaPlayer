@@ -55,9 +55,12 @@ public sealed partial class MainWindow : Window
         LibraryPage.PlayRequested += (_, request) => StartPlayback(request);
         LibraryPage.AddFolderRequested += (_, _) => PickAndAddFolder();
 
+        JellyfinPage.PlayRequested += (_, request) => StartPlayback(request);
+
         SettingsPage.Initialize(_store, _updater);
         SettingsPage.AddFolderRequested += (_, _) => PickAndAddFolder();
         SettingsPage.RestartRequested += (_, _) => RestartToUpdate();
+        SettingsPage.OpenJellyfinRequested += (_, _) => ShowJellyfin();
 
         PlayerPage.Initialize(_store);
         PlayerPage.BackRequested += (_, _) => ReturnFromPlayer();
@@ -98,9 +101,7 @@ public sealed partial class MainWindow : Window
                 ShowLibrary();
                 break;
             case "Jellyfin":
-                SelectRail(button);
-                ShowPlaceholder("", "Jellyfin is coming",
-                    "Stream from your Jellyfin server right inside Iris. This arrives after the local player is finished.");
+                ShowJellyfin();
                 break;
             case "Settings":
                 SelectRail(button);
@@ -118,6 +119,13 @@ public sealed partial class MainWindow : Window
         SelectRail(LibraryRailButton);
         ShowSection(LibraryPage);
         _ = _store.RefreshAsync(showBusy: false);
+    }
+
+    private void ShowJellyfin()
+    {
+        SelectRail(JellyfinRailButton);
+        ShowSection(JellyfinPage);
+        JellyfinPage.Activate();
     }
 
     private void ShowPlaceholder(string glyph, string title, string description)
@@ -163,6 +171,7 @@ public sealed partial class MainWindow : Window
         HomePage.Visibility = section == HomePage ? Visibility.Visible : Visibility.Collapsed;
         LibraryPage.Visibility = section == LibraryPage ? Visibility.Visible : Visibility.Collapsed;
         PlaceholderPage.Visibility = section == PlaceholderPage ? Visibility.Visible : Visibility.Collapsed;
+        JellyfinPage.Visibility = section == JellyfinPage ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = section == SettingsPage ? Visibility.Visible : Visibility.Collapsed;
         PlayerPage.Visibility = section == PlayerPage ? Visibility.Visible : Visibility.Collapsed;
         TopBar.Visibility = section == HomePage || section == PlaceholderPage ? Visibility.Visible : Visibility.Collapsed;
@@ -357,8 +366,10 @@ public sealed partial class MainWindow : Window
     {
         if (PlayerPage.Visibility != Visibility.Visible)
         {
-            _sectionBeforePlayer = LibraryPage.Visibility == Visibility.Visible ? LibraryPage : HomePage;
-            _railBeforePlayer = _sectionBeforePlayer == LibraryPage ? LibraryRailButton : HomeRailButton;
+            (_sectionBeforePlayer, _railBeforePlayer) =
+                LibraryPage.Visibility == Visibility.Visible ? ((UIElement)LibraryPage, LibraryRailButton)
+                : JellyfinPage.Visibility == Visibility.Visible ? (JellyfinPage, JellyfinRailButton)
+                : (HomePage, HomeRailButton);
         }
 
         ShowSection(PlayerPage);

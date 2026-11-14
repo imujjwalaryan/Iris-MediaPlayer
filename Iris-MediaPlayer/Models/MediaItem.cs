@@ -13,6 +13,18 @@ public sealed record MediaItem(
     System.DateTime LastModified) : INotifyPropertyChanged
 {
     public string LibraryRootPath { get; init; } = FolderPath;
+
+    /// <summary>
+    /// For videos streamed from a Jellyfin server: the address mpv plays. Null for local files.
+    /// Streamed videos use a "jellyfin://server/item" <see cref="FilePath"/> as their key.
+    /// </summary>
+    public string? StreamUrl { get; init; }
+
+    /// <summary>Where the server says playback stopped last time, in seconds (streamed videos only).</summary>
+    public double ServerResumeSeconds { get; init; }
+
+    /// <summary>True for videos streamed from a server rather than files on this PC.</summary>
+    public bool IsRemote => StreamUrl is not null;
     public string FileFormat => FileExtension.TrimStart('.').ToUpperInvariant();
     public string Subtitle => $"{FolderName}  ·  {FileFormat}  ·  {LastModified:d}";
 

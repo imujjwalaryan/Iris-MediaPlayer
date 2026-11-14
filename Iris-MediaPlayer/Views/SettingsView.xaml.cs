@@ -1,4 +1,5 @@
 using Iris_MediaPlayer.Services;
+using Iris_MediaPlayer.Services.Jellyfin;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -30,6 +31,7 @@ public sealed partial class SettingsView : UserControl
     private TextBlock _scanStatus = new();
     private TextBlock _updateStatus = new();
     private Button _restartButton = new();
+    private StackPanel _jellyfinRows = new();
     private bool _isBuilt;
 
     public SettingsView()
@@ -40,6 +42,9 @@ public sealed partial class SettingsView : UserControl
     /// <summary>The Add folder button needs the window for its picker, so MainWindow handles it.</summary>
     public event EventHandler? AddFolderRequested;
 
+    /// <summary>"Connect" in the Jellyfin section: MainWindow opens the Jellyfin page.</summary>
+    public event EventHandler? OpenJellyfinRequested;
+
     /// <summary>"Restart" after an update was downloaded from this page.</summary>
     public event EventHandler? RestartRequested;
 
@@ -49,6 +54,7 @@ public sealed partial class SettingsView : UserControl
         _updater = updater;
         Build();
         store.LibraryChanged += RebuildFolderList;
+        JellyfinSession.Changed += () => DispatcherQueue.TryEnqueue(RebuildJellyfinRows);
     }
 
     // ---------- Page ----------
@@ -68,6 +74,11 @@ public sealed partial class SettingsView : UserControl
                 AppSettings.WatchFolders = on;
                 _store?.ApplyWatchSetting();
             }));
+
+        BeginSection("Jellyfin");
+        _jellyfinRows = new StackPanel();
+        _currentGroup!.Children.Add(_jellyfinRows);
+        RebuildJellyfinRows();
 
         BeginSection("Home");
         AddRow("Hide Continue watching", "Remove the row and its slides from Home. Iris still remembers where you stopped.",
@@ -152,6 +163,39 @@ public sealed partial class SettingsView : UserControl
         AddRow("Library folders", "Iris looks for videos in these folders and their subfolders.", addButton);
         _folderList = new StackPanel { Spacing = 0 };
         _currentGroup!.Children.Add(_folderList);
+    }
+
+    /// <summary>The server and account rows, or a "Connect" row when not signed in.</summary>
+    private void RebuildJellyfinRows()
+    {
+        var group = _currentGroup;
+        _currentGroup = _jellyfinRows;
+        _jellyfinRows.Children.Clear();
+        try
+        {
+            if (!JellyfinSession.IsSignedIn)
+            {
+                AddRow("Server", "Not connected. Connect to stream films and shows from your Jellyfin server.",
+                    ButtonControl("Connect", true, _ =>
+                    {
+                        OpenJellyfinRequested?.Invoke(this, EventArgs.Empty);
+                        return Task.CompletedTask;
+                    }));
+                return;
+            }
+
+            AddRow("Server", JellyfinSession.Address, ValueText(JellyfinSession.ServerName ?? "Jellyfin"));
+            AddRow($"Signed in as {JellyfinSession.UserName}", "Your sign-in is kept in Windows Credential Manager.",
+                ButtonControl("Sign out", false, async button =>
+                {
+                    button.IsEnabled = false;
+                    await JellyfinSession.SignOutAsync();
+                }));
+        }
+        finally
+        {
+            _currentGroup = group;
+        }
     }
 
     private void RebuildFolderList()
