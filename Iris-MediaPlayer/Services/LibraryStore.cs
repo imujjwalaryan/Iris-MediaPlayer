@@ -403,6 +403,23 @@ public sealed class LibraryStore : IDisposable
         RefreshRecentMedia();
     }
 
+    /// <summary>Takes one video out of Recently played. The file and its resume point stay.</summary>
+    public void RemoveFromRecent(MediaItem media)
+    {
+        if (_recentFilePaths.RemoveAll(path => string.Equals(path, media.FilePath, StringComparison.OrdinalIgnoreCase)) == 0)
+            return;
+        AppStorage.SetString(RecentFilesSettingsKey, JsonSerializer.Serialize(_recentFilePaths, IrisJsonContext.Default.ListString));
+        RefreshRecentMedia();
+    }
+
+    /// <summary>Empties Recently played. Continue watching and resume points are left alone.</summary>
+    public void ClearRecent()
+    {
+        _recentFilePaths.Clear();
+        AppStorage.SetString(RecentFilesSettingsKey, null);
+        RefreshRecentMedia();
+    }
+
     private void RefreshRecentMedia()
     {
         var recent = _recentFilePaths

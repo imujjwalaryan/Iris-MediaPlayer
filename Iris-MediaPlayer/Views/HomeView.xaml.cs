@@ -90,7 +90,7 @@ public sealed partial class HomeView : UserControl
         // Hidden for good in Settings: no row and no "Continue watching" hero slides. Progress is still saved.
         IReadOnlyList<MediaItem> continueWatching = AppSettings.HideContinueWatching ? [] : _store.ContinueWatching;
         var recentlyAdded = _store.GetRecentlyAdded(RowSize);
-        var recentlyPlayed = _store.RecentMedia;
+        IReadOnlyList<MediaItem> recentlyPlayed = AppSettings.HideRecentlyPlayed ? [] : _store.RecentMedia;
 
         ShowRow(ContinueSection, ContinueItems, continueWatching);
         ShowRow(AddedSection, AddedItems, recentlyAdded);
@@ -437,6 +437,48 @@ public sealed partial class HomeView : UserControl
         };
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
             _store.ClearContinueWatching();
+    }
+
+    /// <summary>The Recently played menu adds "Remove from Recently played" to the usual video menu.</summary>
+    private void RecentCard_ContextRequested(UIElement sender, ContextRequestedEventArgs args)
+    {
+        if (sender is not Button { Tag: string filePath } button || _store is null || _menu is null)
+            return;
+
+        var media = _store.RecentMedia.FirstOrDefault(item =>
+                        string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
+                    ?? _store.ResolveMedia(filePath);
+        if (media is null)
+            return;
+
+        var remove = new MenuFlyoutItem { Text = "Remove from Recently played", Icon = new FontIcon { Glyph = "\uE738" } };
+        remove.Click += (_, _) => _store.RemoveFromRecent(media);
+        _menu.Show(button, media, args, remove);
+    }
+
+    /// <summary>Clears the whole Recently played row after asking. Videos aren't deleted.</summary>
+    private async void ClearRecentlyPlayed_Click(object sender, RoutedEventArgs e)
+    {
+        if (_store is null)
+            return;
+
+        var dialog = new ContentDialog
+        {
+            Title = "Clear Recently played?",
+            Content = new TextBlock
+            {
+                Text = "Every video leaves this row. Continue watching and your videos stay as they are.",
+                TextWrapping = TextWrapping.Wrap
+            },
+            PrimaryButtonText = "Clear",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+            Style = (Style)Application.Current.Resources["DefaultContentDialogStyle"],
+            RequestedTheme = ElementTheme.Dark
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+            _store.ClearRecent();
     }
 
     private void ScrollRowBack_Click(object sender, RoutedEventArgs e) => ScrollRow(sender, -1);

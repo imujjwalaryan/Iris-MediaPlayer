@@ -21,6 +21,7 @@ internal enum ResumeMode
 internal static class AppSettings
 {
     private const string HideContinueWatchingKey = "HideContinueWatching";
+    private const string HideRecentlyPlayedKey = "HideRecentlyPlayed";
     private const string WatchFoldersKey = "WatchLibraryFolders";
     private const string AutoUpdateKey = "AutoUpdate";
 
@@ -32,6 +33,13 @@ internal static class AppSettings
     {
         get => AppStorage.GetBool(HideContinueWatchingKey) ?? false;
         set => Set(HideContinueWatchingKey, value);
+    }
+
+    /// <summary>Hides the Recently played row on Home and its slides (the list is still kept).</summary>
+    public static bool HideRecentlyPlayed
+    {
+        get => AppStorage.GetBool(HideRecentlyPlayedKey) ?? false;
+        set => Set(HideRecentlyPlayedKey, value);
     }
 
     /// <summary>Rescans library folders on their own when files are added, removed or renamed.</summary>

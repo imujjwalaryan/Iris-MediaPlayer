@@ -18,6 +18,12 @@
                 <controls:MediaCard ShowTimeRemaining="True" />
             </Button>
         </DataTemplate>
+        <DataTemplate x:Key="RecentCardTemplate">
+            <Button Style="{StaticResource IrisCardButtonStyle}" Width="272"
+                    Tag="{Binding FilePath}" Click="MediaCard_Click" ContextRequested="RecentCard_ContextRequested">
+                <controls:MediaCard />
+            </Button>
+        </DataTemplate>
         <Color x:Key="HeroFade">#FF09090B</Color>
     </UserControl.Resources>
 
@@ -170,6 +176,14 @@
                     <Grid Margin="56,0,40,0">
                         <TextBlock Text="Recently played" Style="{StaticResource IrisSectionTitleTextStyle}" VerticalAlignment="Center" />
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                            <Button Style="{StaticResource IrisOutlineButtonStyle}" Height="36" Padding="14,0" FontSize="13"
+                                    FontWeight="Medium" Click="ClearRecentlyPlayed_Click"
+                                    ToolTipService.ToolTip="Remove every video from Recently played">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE81C;" FontSize="13" />
+                                    <TextBlock Text="Clear history" />
+                                </StackPanel>
+                            </Button>
                             <Button Style="{StaticResource IrisOutlineIconButtonStyle}" Tag="RecentScroller" Click="ScrollRowBack_Click"
                                     ToolTipService.ToolTip="Scroll left" AutomationProperties.Name="Scroll left">
                                 <FontIcon Glyph="&#xE76B;" FontSize="12" />
@@ -183,7 +197,7 @@
                     <ScrollViewer x:Name="RecentScroller" Padding="48,0,40,0" HorizontalScrollMode="Enabled"
                                   HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled"
                                   VerticalScrollBarVisibility="Disabled">
-                        <ItemsRepeater x:Name="RecentItems" ItemTemplate="{StaticResource RowCardTemplate}"
+                        <ItemsRepeater x:Name="RecentItems" ItemTemplate="{StaticResource RecentCardTemplate}"
                                        ElementPrepared="RowItems_ElementPrepared">
                             <ItemsRepeater.Layout>
                                 <StackLayout Orientation="Horizontal" Spacing="4" />

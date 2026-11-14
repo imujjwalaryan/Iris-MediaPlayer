@@ -72,6 +72,8 @@ public sealed partial class SettingsView : UserControl
         BeginSection("Home");
         AddRow("Hide Continue watching", "Remove the row and its slides from Home. Iris still remembers where you stopped.",
             Toggle(AppSettings.HideContinueWatching, on => AppSettings.HideContinueWatching = on));
+        AddRow("Hide Recently played", "Remove the row and its slides from Home, so what you've watched doesn't show.",
+            Toggle(AppSettings.HideRecentlyPlayed, on => AppSettings.HideRecentlyPlayed = on));
 
         BeginSection("Playback");
         AddRow("Autoplay next video", "Start the next video in the folder when one ends.",
