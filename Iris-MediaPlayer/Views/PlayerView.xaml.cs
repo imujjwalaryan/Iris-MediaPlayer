@@ -604,7 +604,18 @@ public sealed partial class PlayerView : UserControl
                 OnEndReachedChanged(atEnd);
                 break;
             case "volume" when value is double volume:
-                VolumeSlider.Value = Math.Clamp(volume, VolumeSlider.Minimum, VolumeSlider.Maximum);
+                // mpv's report only moves the slider. Sending it back would echo: reports arrive one
+                // change late, so the two values bounce back and forth and swamp mpv (it then takes
+                // many seconds to show the first frame).
+                _isShowingMpvVolume = true;
+                try
+                {
+                    VolumeSlider.Value = Math.Clamp(volume, VolumeSlider.Minimum, VolumeSlider.Maximum);
+                }
+                finally
+                {
+                    _isShowingMpvVolume = false;
+                }
                 break;
             case "mute" when value is bool muted:
                 _isMuted = muted;
@@ -1019,9 +1030,11 @@ public sealed partial class PlayerView : UserControl
         TryMpv(mpv => mpv.Seek(position));
     }
 
+    private bool _isShowingMpvVolume;
+
     private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
-        if (_isInitializing)
+        if (_isInitializing || _isShowingMpvVolume)
             return;
 
         TryMpv(mpv => mpv.SetVolume(e.NewValue));

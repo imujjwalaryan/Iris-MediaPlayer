@@ -69,6 +69,14 @@ internal sealed class MpvPlayback : IDisposable
             SetOption("osc", "no");
             SetOption("osd-level", "0");
             SetOption("input-default-bindings", "no");
+            // mpv's built-in scripts (stats, console, menus, the youtube-dl hook that runs on every web
+            // address…) aren't used by Iris. Options this mpv build doesn't know are skipped.
+            foreach (var script in new[] { "ytdl", "load-stats-overlay", "load-console", "load-auto-profiles",
+                                           "load-select", "load-positioning", "load-commands", "load-osd-console" })
+                TrySetOption(script, "no");
+            // For troubleshooting: with IRIS_MPV_LOG set, mpv writes a detailed log next to Iris's data.
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("IRIS_MPV_LOG")))
+                SetOption("log-file", AppStorage.GetFilePath("mpv.log"));
             // Text subtitles sit a little closer to the bottom edge than mpv's default (34).
             SetOption("sub-margin-y", "22");
             // After a seek, show the subtitle line already in progress instead of waiting for the next one,
@@ -439,6 +447,8 @@ internal sealed class MpvPlayback : IDisposable
             ThrowIfError(MpvNative.mpv_set_property_string(_handle, "d3d11-composition-size", $"{width}x{height}"), "resize video output");
         }
     }
+
+    private void TrySetOption(string name, string value) => MpvNative.mpv_set_option_string(_handle, name, value);
 
     private void SetOption(string name, string value)
     {
