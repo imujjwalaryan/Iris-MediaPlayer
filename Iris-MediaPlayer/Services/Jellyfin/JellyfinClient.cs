@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -22,14 +21,30 @@ public sealed record QuickConnectRequest(string Code, string Secret);
 /// <summary>Something went wrong talking to the server, with a message that can be shown as is.</summary>
 public sealed class JellyfinException(string message, Exception? inner = null) : Exception(message, inner);
 
+/// <summary>How a library page is narrowed down.</summary>
+public enum JellyfinFilter { All, Unwatched, InProgress, Favorites }
+
+/// <summary>How a library page is ordered.</summary>
+public enum JellyfinSort { Name, DateAdded, ReleaseDate, Rating }
+
+/// <summary>Kinds of picture an item can have.</summary>
+public enum JellyfinImage { Poster, Wide, Backdrop, Logo }
+
 /// <summary>
 /// A small client for the parts of the Jellyfin HTTP API Iris uses: checking a server, signing in
-/// (password or Quick Connect), listing libraries and items, and building stream and image links.
-/// Responses are read with JsonDocument, so nothing here needs reflection.
+/// (password or Quick Connect), home rows, libraries, item details, seasons and episodes, favorites
+/// and watched marks, and stream and image links. Responses are read with JsonDocument, so nothing
+/// here needs reflection.
 /// </summary>
-public sealed class JellyfinClient : IDisposable
+public sealed class JellyfinClient
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
+
+    /// <summary>The fields every list asks for, so cards and the hero have what they show.</summary>
+    private const string ListFields =
+        "&fields=Overview,Genres,DateCreated,PremiereDate,ProductionYear,RunTimeTicks,Container,SeriesName,"
+        + "ParentIndexNumber,IndexNumber,ChildCount,RecursiveItemCount,Status,EndDate,OfficialRating,CommunityRating,"
+        + "CriticRating,Taglines&enableImageTypes=Primary,Backdrop,Thumb,Logo&imageTypeLimit=1&enableUserData=true";
 
     public JellyfinClient(string address, string? accessToken = null, string? userId = null)
     {
@@ -42,7 +57,7 @@ public sealed class JellyfinClient : IDisposable
     public string? AccessToken { get; private set; }
     public string? UserId { get; private set; }
 
-    /// <summary>"jelly.example.com" → "https://jelly.example.com"; drops a trailing slash or "/web".</summary>
+    /// <summary>"jelly.example.com" → "http://jelly.example.com"; drops a trailing slash or "/web".</summary>
     public static string NormalizeAddress(string address)
     {
         var text = address.Trim();
@@ -140,127 +155,356 @@ public sealed class JellyfinClient : IDisposable
         return new JellyfinSignIn(GetString(root, "ServerId") ?? string.Empty, userId, GetString(user, "Name") ?? string.Empty, token);
     }
 
-    // ---------- Browsing ----------
+    // ---------- Home rows ----------
 
     /// <summary>The user's video libraries (music, books and photos are left out).</summary>
     public async Task<IReadOnlyList<JellyfinItem>> GetLibrariesAsync(CancellationToken cancel = default)
     {
         var userId = RequireUser();
-        JsonDocument json;
-        try
-        {
-            json = await SendAsync(HttpMethod.Get, "/UserViews?userId=" + userId, null, cancel, "load your libraries");
-        }
-        catch (JellyfinException)
-        {
-            // Servers before 10.9 only have the older route.
-            json = await SendAsync(HttpMethod.Get, $"/Users/{userId}/Views", null, cancel, "load your libraries");
-        }
-
-        using (json)
-        {
-            return ReadItems(json.RootElement)
-                .Where(item => item.CollectionType is null or "movies" or "tvshows" or "homevideos" or "musicvideos" or "boxsets" or "mixed")
-                .ToList();
-        }
-    }
-
-    /// <summary>
-    /// What's inside <paramref name="parent"/>. Movie and show libraries list every film or series in
-    /// them, whatever folders they sit in; everything else lists its direct children.
-    /// </summary>
-    public async Task<IReadOnlyList<JellyfinItem>> GetChildrenAsync(JellyfinItem parent, CancellationToken cancel = default)
-    {
-        var userId = RequireUser();
-        var query = new StringBuilder($"/Items?userId={userId}&parentId={parent.Id}")
-            .Append("&fields=ProductionYear,RunTimeTicks,Container,DateCreated,UserData,SeriesName,ParentIndexNumber,IndexNumber")
-            .Append("&enableImageTypes=Primary,Thumb,Backdrop&imageTypeLimit=1&enableTotalRecordCount=false");
-
-        switch (parent.CollectionType)
-        {
-            case "movies":
-                query.Append("&recursive=true&includeItemTypes=Movie&sortBy=SortName&sortOrder=Ascending");
-                break;
-            case "tvshows":
-                query.Append("&recursive=true&includeItemTypes=Series&sortBy=SortName&sortOrder=Ascending");
-                break;
-            default:
-                // Seasons and episodes in their order; everything else by name.
-                query.Append(parent.Type is "Series" or "Season"
-                    ? "&sortBy=ParentIndexNumber,IndexNumber,SortName&sortOrder=Ascending"
-                    : "&sortBy=IsFolder,SortName&sortOrder=Descending,Ascending");
-                break;
-        }
-
-        using var json = await SendAsync(HttpMethod.Get, query.ToString(), null, cancel, "load this library");
-        return ReadItems(json.RootElement)
-            .Where(item => item.IsFolder || item.IsPlayable)
+        var items = await GetItemsWithFallbackAsync("/UserViews?userId=" + userId, $"/Users/{userId}/Views", cancel, "load your libraries");
+        return items.Where(item => item.CollectionType is null or "movies" or "tvshows" or "homevideos" or "musicvideos" or "boxsets" or "mixed")
             .ToList();
     }
 
-    private string RequireUser() => UserId ?? throw new JellyfinException("Sign in to your Jellyfin server first.");
-
-    private IEnumerable<JellyfinItem> ReadItems(JsonElement root)
+    /// <summary>Films and episodes started but not finished, most recent first.</summary>
+    public Task<IReadOnlyList<JellyfinItem>> GetResumeAsync(int limit, CancellationToken cancel = default)
     {
-        if (!root.TryGetProperty("Items", out var items) || items.ValueKind != JsonValueKind.Array)
-            yield break;
+        var userId = RequireUser();
+        var query = $"?userId={userId}&mediaTypes=Video&limit={limit}" + ListFields;
+        return GetItemsWithFallbackAsync("/UserItems/Resume" + query, $"/Users/{userId}/Items/Resume" + query, cancel, "load Continue watching");
+    }
 
-        foreach (var element in items.EnumerateArray())
+    /// <summary>The next episode to watch in each show (or in one show, with <paramref name="seriesId"/>).</summary>
+    public async Task<IReadOnlyList<JellyfinItem>> GetNextUpAsync(int limit, string? seriesId = null, CancellationToken cancel = default)
+    {
+        var query = $"/Shows/NextUp?userId={RequireUser()}&limit={limit}" + ListFields
+                    + (seriesId is null ? string.Empty : "&seriesId=" + seriesId);
+        using var json = await SendAsync(HttpMethod.Get, query, null, cancel, "load Next up");
+        return ReadItems(json.RootElement).ToList();
+    }
+
+    /// <summary>The newest films or shows in a library.</summary>
+    public async Task<IReadOnlyList<JellyfinItem>> GetLatestAsync(string libraryId, int limit, CancellationToken cancel = default)
+    {
+        var userId = RequireUser();
+        var query = $"?userId={userId}&parentId={libraryId}&limit={limit}&groupItems=true" + ListFields;
+        JsonDocument json;
+        try
         {
-            var id = GetString(element, "Id");
-            if (string.IsNullOrEmpty(id))
-                continue;
+            json = await SendAsync(HttpMethod.Get, "/Items/Latest" + query, null, cancel, "load what's new");
+        }
+        catch (JellyfinException)
+        {
+            json = await SendAsync(HttpMethod.Get, $"/Users/{userId}/Items/Latest" + query, null, cancel, "load what's new");
+        }
+        using (json)
+            return ReadItemArray(json.RootElement).ToList();
+    }
 
-            string? primaryTag = null;
-            if (element.TryGetProperty("ImageTags", out var tags) && tags.ValueKind == JsonValueKind.Object)
-                primaryTag = GetString(tags, "Primary");
+    // ---------- Libraries and folders ----------
 
-            double resumeSeconds = 0, playedPercent = 0;
-            if (element.TryGetProperty("UserData", out var userData) && userData.ValueKind == JsonValueKind.Object)
+    /// <summary>
+    /// What's inside <paramref name="parent"/>. Movie and show libraries list every film or series in
+    /// them, whatever folders they sit in; everything else lists its direct children. A null parent
+    /// lists films and shows from every library (used for Favorites).
+    /// </summary>
+    public async Task<IReadOnlyList<JellyfinItem>> GetLibraryItemsAsync(JellyfinItem? parent, JellyfinFilter filter, JellyfinSort sort,
+        CancellationToken cancel = default)
+    {
+        var query = new StringBuilder($"/Items?userId={RequireUser()}").Append(ListFields).Append("&enableTotalRecordCount=false");
+        if (parent is not null)
+            query.Append("&parentId=").Append(parent.Id);
+
+        var recursiveTypes = parent is null ? "Movie,Series"
+            : parent.CollectionType switch
             {
-                if (userData.TryGetProperty("PlaybackPositionTicks", out var ticks) && ticks.TryGetInt64(out var position))
-                    resumeSeconds = position / 10_000_000d;
-                if (userData.TryGetProperty("PlayedPercentage", out var percent) && percent.TryGetDouble(out var value))
-                    playedPercent = value;
-            }
-
-            yield return new JellyfinItem
-            {
-                Id = id,
-                Name = GetString(element, "Name") ?? "Untitled",
-                Type = GetString(element, "Type") ?? string.Empty,
-                CollectionType = GetString(element, "CollectionType"),
-                IsFolder = element.TryGetProperty("IsFolder", out var folder) && folder.ValueKind == JsonValueKind.True,
-                Year = GetInt(element, "ProductionYear"),
-                SeriesName = GetString(element, "SeriesName"),
-                SeasonNumber = GetInt(element, "ParentIndexNumber"),
-                EpisodeNumber = GetInt(element, "IndexNumber"),
-                RunTimeSeconds = element.TryGetProperty("RunTimeTicks", out var runTime) && runTime.TryGetInt64(out var runTicks)
-                    ? runTicks / 10_000_000d : 0,
-                Container = GetString(element, "Container"),
-                DateCreated = element.TryGetProperty("DateCreated", out var created) && created.TryGetDateTime(out var date)
-                    ? date : DateTime.MinValue,
-                ResumeSeconds = resumeSeconds,
-                PlayedPercent = playedPercent,
-                PrimaryImageTag = primaryTag
+                "movies" => "Movie",
+                "tvshows" => "Series",
+                _ => null
             };
+        if (recursiveTypes is not null)
+            query.Append("&recursive=true&includeItemTypes=").Append(recursiveTypes);
+
+        query.Append(filter switch
+        {
+            JellyfinFilter.Unwatched => "&filters=IsUnplayed",
+            JellyfinFilter.InProgress => "&filters=IsResumable",
+            JellyfinFilter.Favorites => "&filters=IsFavorite",
+            _ => string.Empty
+        });
+        query.Append(sort switch
+        {
+            JellyfinSort.DateAdded => "&sortBy=DateCreated,SortName&sortOrder=Descending,Ascending",
+            JellyfinSort.ReleaseDate => "&sortBy=PremiereDate,ProductionYear,SortName&sortOrder=Descending,Descending,Ascending",
+            JellyfinSort.Rating => "&sortBy=CommunityRating,SortName&sortOrder=Descending,Ascending",
+            _ when recursiveTypes is null => "&sortBy=IsFolder,SortName&sortOrder=Descending,Ascending",
+            _ => "&sortBy=SortName&sortOrder=Ascending"
+        });
+
+        using var json = await SendAsync(HttpMethod.Get, query.ToString(), null, cancel, "load this library");
+        return ReadItems(json.RootElement).Where(item => item.IsFolder || item.IsPlayable).ToList();
+    }
+
+    // ---------- Details ----------
+
+    /// <summary>Everything about one item: overview, credits, ratings, versions and tracks.</summary>
+    public async Task<JellyfinItem> GetItemAsync(string itemId, CancellationToken cancel = default)
+    {
+        var userId = RequireUser();
+        const string fields = "?fields=Overview,Genres,People,Studios,Taglines,MediaSources,RemoteTrailers,ChildCount,Status,EndDate";
+        JsonDocument json;
+        try
+        {
+            json = await SendAsync(HttpMethod.Get, $"/Items/{itemId}{fields}&userId={userId}", null, cancel, "load this title");
+        }
+        catch (JellyfinException)
+        {
+            json = await SendAsync(HttpMethod.Get, $"/Users/{userId}/Items/{itemId}{fields}", null, cancel, "load this title");
+        }
+        using (json)
+            return ReadItem(json.RootElement) ?? throw new JellyfinException("The server sent an empty answer for this title.");
+    }
+
+    public async Task<IReadOnlyList<JellyfinItem>> GetSeasonsAsync(string seriesId, CancellationToken cancel = default)
+    {
+        using var json = await SendAsync(HttpMethod.Get, $"/Shows/{seriesId}/Seasons?userId={RequireUser()}" + ListFields, null, cancel,
+            "load the seasons");
+        return ReadItems(json.RootElement).ToList();
+    }
+
+    public async Task<IReadOnlyList<JellyfinItem>> GetEpisodesAsync(string seriesId, string seasonId, CancellationToken cancel = default)
+    {
+        using var json = await SendAsync(HttpMethod.Get, $"/Shows/{seriesId}/Episodes?userId={RequireUser()}&seasonId={seasonId}" + ListFields,
+            null, cancel, "load the episodes");
+        return ReadItems(json.RootElement).ToList();
+    }
+
+    // ---------- Marks ----------
+
+    public Task SetFavoriteAsync(string itemId, bool favorite)
+        => SendMarkAsync(favorite, $"/UserFavoriteItems/{itemId}?userId={RequireUser()}", $"/Users/{RequireUser()}/FavoriteItems/{itemId}",
+            "change the favorite");
+
+    public Task SetPlayedAsync(string itemId, bool played)
+        => SendMarkAsync(played, $"/UserPlayedItems/{itemId}?userId={RequireUser()}", $"/Users/{RequireUser()}/PlayedItems/{itemId}",
+            "change watched");
+
+    private async Task SendMarkAsync(bool on, string path, string olderPath, string action)
+    {
+        var method = on ? HttpMethod.Post : HttpMethod.Delete;
+        try
+        {
+            using var _ = await SendAsync(method, path, null, CancellationToken.None, action);
+        }
+        catch (JellyfinException)
+        {
+            using var _ = await SendAsync(method, olderPath, null, CancellationToken.None, action);
         }
     }
 
     // ---------- Links ----------
 
-    /// <summary>The item's main picture (poster, or a still for episodes), sized for a card.</summary>
-    public string? GetImageUrl(JellyfinItem item, int height)
-        => item.PrimaryImageTag is null
-            ? null
-            : $"{Address}/Items/{item.Id}/Images/Primary?fillHeight={height}&quality=90&tag={Uri.EscapeDataString(item.PrimaryImageTag)}";
+    /// <summary>
+    /// A picture for <paramref name="item"/>, falling back to its show's when it has none of its own.
+    /// Posters and stills are sized by height; backdrops and logos by width.
+    /// </summary>
+    public string? GetImageUrl(JellyfinItem item, JellyfinImage kind, int size)
+    {
+        (string Id, string Type, string Tag)? pick = kind switch
+        {
+            JellyfinImage.Poster => item.PrimaryTag is { } primary && item.Type != "Episode" ? (item.Id, "Primary", primary)
+                : item.SeriesPrimaryTag is { } series && item.SeriesId is { } seriesId ? (seriesId, "Primary", series)
+                : item.PrimaryTag is { } any ? (item.Id, "Primary", any) : null,
+            JellyfinImage.Wide => item.Type == "Episode" && item.PrimaryTag is { } still ? (item.Id, "Primary", still)
+                : item.ThumbTag is { } thumb ? (item.Id, "Thumb", thumb)
+                : item.ParentThumbTag is { } parentThumb && item.ParentThumbItemId is { } thumbOwner ? (thumbOwner, "Thumb", parentThumb)
+                : item.BackdropTag is { } backdrop ? (item.Id, "Backdrop/0", backdrop)
+                : item.ParentBackdropTag is { } parentBackdrop && item.ParentBackdropItemId is { } backdropOwner ? (backdropOwner, "Backdrop/0", parentBackdrop)
+                : item.PrimaryTag is { } primaryWide ? (item.Id, "Primary", primaryWide) : null,
+            JellyfinImage.Backdrop => item.BackdropTag is { } own ? (item.Id, "Backdrop/0", own)
+                : item.ParentBackdropTag is { } parent && item.ParentBackdropItemId is { } owner ? (owner, "Backdrop/0", parent) : null,
+            JellyfinImage.Logo => item.LogoTag is { } logo ? (item.Id, "Logo", logo)
+                : item.ParentLogoTag is { } parentLogo && item.ParentLogoItemId is { } logoOwner ? (logoOwner, "Logo", parentLogo) : null,
+            _ => null
+        };
+        if (pick is not { } image)
+            return null;
+        var sizing = kind is JellyfinImage.Poster || (kind == JellyfinImage.Wide && image.Type == "Primary") ? $"fillHeight={size}" : $"maxWidth={size}";
+        return $"{Address}/Items/{image.Id}/Images/{image.Type}?{sizing}&quality=90&tag={Uri.EscapeDataString(image.Tag)}";
+    }
+
+    public string? GetPersonImageUrl(JellyfinPerson person, int height)
+        => person.ImageTag is null ? null
+            : $"{Address}/Items/{person.Id}/Images/Primary?fillHeight={height}&quality=90&tag={Uri.EscapeDataString(person.ImageTag)}";
 
     /// <summary>
     /// The original file, streamed as is ("direct play"). mpv seeks in it with HTTP range requests.
     /// The token is in the link because mpv can't send Jellyfin's sign-in header.
     /// </summary>
-    public string GetStreamUrl(JellyfinItem item)
-        => $"{Address}/Videos/{item.Id}/stream?static=true&mediaSourceId={item.Id}&api_key={Uri.EscapeDataString(AccessToken ?? string.Empty)}";
+    public string GetStreamUrl(JellyfinItem item, string? mediaSourceId = null)
+        => $"{Address}/Videos/{item.Id}/stream?static=true&mediaSourceId={mediaSourceId ?? item.Id}&api_key={Uri.EscapeDataString(AccessToken ?? string.Empty)}";
+
+    // ---------- Reading answers ----------
+
+    private string RequireUser() => UserId ?? throw new JellyfinException("Sign in to your Jellyfin server first.");
+
+    private async Task<IReadOnlyList<JellyfinItem>> GetItemsWithFallbackAsync(string path, string olderPath, CancellationToken cancel, string action)
+    {
+        JsonDocument json;
+        try
+        {
+            json = await SendAsync(HttpMethod.Get, path, null, cancel, action);
+        }
+        catch (JellyfinException)
+        {
+            // Servers before 10.9 only have the older routes.
+            json = await SendAsync(HttpMethod.Get, olderPath, null, cancel, action);
+        }
+        using (json)
+            return ReadItems(json.RootElement).ToList();
+    }
+
+    private static IEnumerable<JellyfinItem> ReadItems(JsonElement root)
+        => root.ValueKind == JsonValueKind.Object && root.TryGetProperty("Items", out var items) ? ReadItemArray(items) : [];
+
+    private static IEnumerable<JellyfinItem> ReadItemArray(JsonElement array)
+    {
+        if (array.ValueKind != JsonValueKind.Array)
+            yield break;
+        foreach (var element in array.EnumerateArray())
+        {
+            if (ReadItem(element) is { } item)
+                yield return item;
+        }
+    }
+
+    private static JellyfinItem? ReadItem(JsonElement element)
+    {
+        var id = GetString(element, "Id");
+        if (string.IsNullOrEmpty(id))
+            return null;
+
+        string? primary = null, thumb = null, logo = null;
+        if (element.TryGetProperty("ImageTags", out var tags) && tags.ValueKind == JsonValueKind.Object)
+        {
+            primary = GetString(tags, "Primary");
+            thumb = GetString(tags, "Thumb");
+            logo = GetString(tags, "Logo");
+        }
+
+        double resume = 0;
+        bool favorite = false, played = false;
+        int? unplayed = null;
+        if (element.TryGetProperty("UserData", out var userData) && userData.ValueKind == JsonValueKind.Object)
+        {
+            if (userData.TryGetProperty("PlaybackPositionTicks", out var ticks) && ticks.TryGetInt64(out var position))
+                resume = position / 10_000_000d;
+            favorite = GetBool(userData, "IsFavorite");
+            played = GetBool(userData, "Played");
+            unplayed = GetInt(userData, "UnplayedItemCount");
+        }
+
+        return new JellyfinItem
+        {
+            Id = id,
+            Name = GetString(element, "Name") ?? "Untitled",
+            Type = GetString(element, "Type") ?? string.Empty,
+            CollectionType = GetString(element, "CollectionType"),
+            IsFolder = GetBool(element, "IsFolder"),
+            Year = GetInt(element, "ProductionYear"),
+            EndYear = GetDate(element, "EndDate")?.Year,
+            Status = GetString(element, "Status"),
+            SeriesId = GetString(element, "SeriesId"),
+            SeriesName = GetString(element, "SeriesName"),
+            SeasonId = GetString(element, "SeasonId"),
+            SeasonNumber = GetInt(element, "ParentIndexNumber"),
+            EpisodeNumber = GetInt(element, "IndexNumber"),
+            RunTimeSeconds = element.TryGetProperty("RunTimeTicks", out var runTime) && runTime.TryGetInt64(out var runTicks) ? runTicks / 10_000_000d : 0,
+            Container = GetString(element, "Container"),
+            DateCreated = GetDate(element, "DateCreated") ?? DateTime.MinValue,
+            PremiereDate = GetDate(element, "PremiereDate"),
+            Overview = GetString(element, "Overview"),
+            Tagline = GetStrings(element, "Taglines").FirstOrDefault(),
+            Genres = GetStrings(element, "Genres"),
+            Studios = element.TryGetProperty("Studios", out var studios) && studios.ValueKind == JsonValueKind.Array
+                ? studios.EnumerateArray().Select(studio => GetString(studio, "Name")).OfType<string>().ToList() : [],
+            People = ReadPeople(element),
+            CommunityRating = GetDouble(element, "CommunityRating"),
+            CriticRating = GetDouble(element, "CriticRating"),
+            OfficialRating = GetString(element, "OfficialRating"),
+            TrailerUrl = element.TryGetProperty("RemoteTrailers", out var trailers) && trailers.ValueKind == JsonValueKind.Array && trailers.GetArrayLength() > 0
+                ? GetString(trailers[0], "Url") : null,
+            ChildCount = GetInt(element, "ChildCount"),
+            UnplayedCount = unplayed,
+            MediaSources = ReadMediaSources(element),
+            PrimaryTag = primary,
+            ThumbTag = thumb,
+            LogoTag = logo,
+            BackdropTag = GetStrings(element, "BackdropImageTags").FirstOrDefault(),
+            SeriesPrimaryTag = GetString(element, "SeriesPrimaryImageTag"),
+            ParentThumbItemId = GetString(element, "ParentThumbItemId"),
+            ParentThumbTag = GetString(element, "ParentThumbImageTag"),
+            ParentLogoItemId = GetString(element, "ParentLogoItemId"),
+            ParentLogoTag = GetString(element, "ParentLogoImageTag"),
+            ParentBackdropItemId = GetString(element, "ParentBackdropItemId"),
+            ParentBackdropTag = GetStrings(element, "ParentBackdropImageTags").FirstOrDefault(),
+            ResumeSeconds = resume,
+            IsFavorite = favorite,
+            IsPlayed = played
+        };
+    }
+
+    private static IReadOnlyList<JellyfinPerson> ReadPeople(JsonElement element)
+    {
+        if (!element.TryGetProperty("People", out var people) || people.ValueKind != JsonValueKind.Array)
+            return [];
+        return people.EnumerateArray()
+            .Select(person => GetString(person, "Id") is { } id && GetString(person, "Name") is { } name
+                ? new JellyfinPerson
+                {
+                    Id = id, Name = name, Role = GetString(person, "Role"), Type = GetString(person, "Type") ?? string.Empty,
+                    ImageTag = GetString(person, "PrimaryImageTag")
+                }
+                : null)
+            .OfType<JellyfinPerson>()
+            .ToList();
+    }
+
+    private static IReadOnlyList<JellyfinMediaSource> ReadMediaSources(JsonElement element)
+    {
+        if (!element.TryGetProperty("MediaSources", out var sources) || sources.ValueKind != JsonValueKind.Array)
+            return [];
+        return sources.EnumerateArray()
+            .Select(source => GetString(source, "Id") is { } id
+                ? new JellyfinMediaSource
+                {
+                    Id = id,
+                    Name = GetString(source, "Name"),
+                    Size = source.TryGetProperty("Size", out var size) && size.TryGetInt64(out var bytes) ? bytes : 0,
+                    Container = GetString(source, "Container"),
+                    DefaultAudioIndex = GetInt(source, "DefaultAudioStreamIndex"),
+                    DefaultSubtitleIndex = GetInt(source, "DefaultSubtitleStreamIndex"),
+                    Streams = source.TryGetProperty("MediaStreams", out var streams) && streams.ValueKind == JsonValueKind.Array
+                        ? streams.EnumerateArray().Select(stream => new JellyfinStream
+                        {
+                            Index = GetInt(stream, "Index") ?? 0,
+                            Type = GetString(stream, "Type") ?? string.Empty,
+                            Language = GetString(stream, "Language"),
+                            DisplayTitle = GetString(stream, "DisplayTitle"),
+                            Codec = GetString(stream, "Codec"),
+                            IsExternal = GetBool(stream, "IsExternal"),
+                            IsDefault = GetBool(stream, "IsDefault"),
+                            IsForced = GetBool(stream, "IsForced"),
+                            Width = GetInt(stream, "Width") ?? 0,
+                            Height = GetInt(stream, "Height") ?? 0,
+                            VideoRangeType = GetString(stream, "VideoRangeType")
+                        }).ToList()
+                        : []
+                }
+                : null)
+            .OfType<JellyfinMediaSource>()
+            .ToList();
+    }
 
     // ---------- HTTP ----------
 
@@ -326,81 +570,19 @@ public sealed class JellyfinClient : IDisposable
         => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private static int? GetInt(JsonElement element, string name)
-        => element.TryGetProperty(name, out var value) && value.TryGetInt32(out var number) ? number : null;
+        => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number) ? number : null;
 
-    public void Dispose()
-    {
-    }
-}
+    private static double? GetDouble(JsonElement element, string name)
+        => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number) ? number : null;
 
-/// <summary>A library, folder, show, season or video on a Jellyfin server.</summary>
-public sealed class JellyfinItem
-{
-    public required string Id { get; init; }
-    public required string Name { get; init; }
-    /// <summary>Jellyfin's type: Movie, Series, Season, Episode, Video, Folder, BoxSet, CollectionFolder…</summary>
-    public required string Type { get; init; }
-    /// <summary>For libraries: movies, tvshows, homevideos… Null otherwise.</summary>
-    public string? CollectionType { get; init; }
-    public bool IsFolder { get; init; }
-    public int? Year { get; init; }
-    public string? SeriesName { get; init; }
-    public int? SeasonNumber { get; init; }
-    public int? EpisodeNumber { get; init; }
-    public double RunTimeSeconds { get; init; }
-    public string? Container { get; init; }
-    public DateTime DateCreated { get; init; }
-    public double ResumeSeconds { get; init; }
-    public double PlayedPercent { get; init; }
-    public string? PrimaryImageTag { get; init; }
+    private static bool GetBool(JsonElement element, string name)
+        => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;
 
-    public bool IsPlayable => !IsFolder && Type is "Movie" or "Episode" or "Video" or "MusicVideo" or "Trailer";
+    private static DateTime? GetDate(JsonElement element, string name)
+        => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && value.TryGetDateTime(out var date) ? date : null;
 
-    /// <summary>Episodes and home videos have wide stills; everything else has tall posters.</summary>
-    public bool IsWide => Type is "Episode" or "Video" or "MusicVideo" or "CollectionFolder" or "UserView";
-
-    /// <summary>The name shown on cards: "3. Pilot" for episodes, the name otherwise.</summary>
-    public string DisplayName => Type == "Episode" && EpisodeNumber is { } number ? $"{number}. {Name}" : Name;
-
-    /// <summary>The small line under the name: year, running time or episode number.</summary>
-    public string Caption
-    {
-        get
-        {
-            var parts = new List<string>();
-            if (Type == "Episode" && SeasonNumber is { } season && EpisodeNumber is { } episode)
-                parts.Add($"S{season}:E{episode}");
-            else if (Year is { } year)
-                parts.Add(year.ToString(CultureInfo.InvariantCulture));
-            if (RunTimeSeconds > 0)
-            {
-                var time = TimeSpan.FromSeconds(RunTimeSeconds);
-                parts.Add(time.TotalHours >= 1 ? $"{(int)time.TotalHours} h {time.Minutes} min" : $"{Math.Max(1, (int)time.TotalMinutes)} min");
-            }
-            if (parts.Count == 0)
-                parts.Add(Type switch
-                {
-                    "Series" => "Show",
-                    "Season" => "Season",
-                    "BoxSet" => "Collection",
-                    "Folder" or "CollectionFolder" => "Folder",
-                    _ => string.Empty
-                });
-            return string.Join("  ·  ", parts.Where(part => part.Length > 0));
-        }
-    }
-
-    /// <summary>How much has been watched, from 0 to 1 (for the progress line on cards).</summary>
-    public double Progress => RunTimeSeconds > 0 && ResumeSeconds > 0
-        ? Math.Clamp(ResumeSeconds / RunTimeSeconds, 0, 1)
-        : 0;
-
-    public Microsoft.UI.Xaml.Visibility ProgressVisibility
-        => Progress > 0.01 && Progress < 0.97 ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
-
-    /// <summary>Shown while the picture loads, or when there is none.</summary>
-    public string Glyph => IsPlayable ? "\uE714" : Type == "Series" || Type == "Season" ? "\uE7F4" : "\uE8B7";
-
-    /// <summary>The card picture, set by the page once it has the link.</summary>
-    public Microsoft.UI.Xaml.Media.ImageSource? Image { get; set; }
+    private static IReadOnlyList<string> GetStrings(JsonElement element, string name)
+        => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array
+            ? value.EnumerateArray().Where(entry => entry.ValueKind == JsonValueKind.String).Select(entry => entry.GetString()!).ToList()
+            : [];
 }

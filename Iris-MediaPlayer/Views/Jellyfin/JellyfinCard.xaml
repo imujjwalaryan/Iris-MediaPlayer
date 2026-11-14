@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Iris_MediaPlayer.Views.Jellyfin.JellyfinCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    PointerEntered="Card_PointerEntered"
+    PointerExited="Card_PointerExited"
+    PointerCanceled="Card_PointerExited">
+
+    <!--
+        A Jellyfin film, show, season or episode. Kind="Poster" is 2:3 with the name and year under it;
+        Kind="Wide" is 16:9 with the show (or film) and what's left to watch. DataContext is a JellyfinItem.
+    -->
+    <StackPanel Spacing="10">
+        <Grid x:Name="Art" CornerRadius="12" Background="{StaticResource IrisThumbnailBrush}" SizeChanged="Art_SizeChanged">
+            <FontIcon x:Name="PlaceholderGlyph" FontSize="28" Opacity="0.3" />
+            <Image x:Name="ArtImage" Stretch="UniformToFill" />
+
+            <Border x:Name="PlayedBadge" Width="24" Height="24" CornerRadius="12" Margin="0,8,8,0"
+                    HorizontalAlignment="Right" VerticalAlignment="Top" Background="#BF09090B" Visibility="Collapsed">
+                <FontIcon Glyph="&#xE73E;" FontSize="11" Foreground="{StaticResource IrisAccentLightBrush}" />
+            </Border>
+            <Border x:Name="UnplayedBadge" MinWidth="24" Height="24" Padding="7,0" CornerRadius="12" Margin="0,8,8,0"
+                    HorizontalAlignment="Right" VerticalAlignment="Top" Background="{StaticResource IrisAccentBrush}" Visibility="Collapsed">
+                <TextBlock x:Name="UnplayedText" FontSize="11" FontWeight="Bold" Foreground="{StaticResource IrisOnAccentBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+
+            <Grid x:Name="PlayHint" IsHitTestVisible="False">
+                <Border x:Name="PlayHintButton" Width="48" Height="48" CornerRadius="24" Background="#EBF4F4F6"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <FontIcon x:Name="PlayHintGlyph" Glyph="&#xF5B0;" FontSize="16" Foreground="{StaticResource IrisOnLightBrush}" />
+                </Border>
+            </Grid>
+
+            <Grid x:Name="ProgressTrack" Height="4" VerticalAlignment="Bottom" Background="#2EFFFFFF" Visibility="Collapsed">
+                <Border x:Name="ProgressFill" HorizontalAlignment="Left" Background="{StaticResource IrisAccentBrush}" />
+            </Grid>
+        </Grid>
+
+        <StackPanel Spacing="2" Margin="4,0">
+            <TextBlock x:Name="TitleText" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+            <TextBlock x:Name="CaptionText" Style="{StaticResource IrisCaptionTextStyle}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+        </StackPanel>
+    </StackPanel>
+</UserControl>

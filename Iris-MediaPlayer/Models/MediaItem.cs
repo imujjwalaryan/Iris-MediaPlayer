@@ -23,6 +23,12 @@ public sealed record MediaItem(
     /// <summary>Where the server says playback stopped last time, in seconds (streamed videos only).</summary>
     public double ServerResumeSeconds { get; init; }
 
+    /// <summary>mpv audio track to start with (chosen on a Jellyfin details page); null keeps mpv's choice.</summary>
+    public long? StartAudioTrack { get; init; }
+
+    /// <summary>mpv subtitle track to start with; -1 starts with subtitles off, null keeps mpv's choice.</summary>
+    public long? StartSubtitleTrack { get; init; }
+
     /// <summary>True for videos streamed from a server rather than files on this PC.</summary>
     public bool IsRemote => StreamUrl is not null;
     public string FileFormat => FileExtension.TrimStart('.').ToUpperInvariant();

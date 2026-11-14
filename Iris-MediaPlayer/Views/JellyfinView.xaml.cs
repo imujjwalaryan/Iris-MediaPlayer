@@ -1,9 +1,10 @@
 using Iris_MediaPlayer.Models;
+using Iris_MediaPlayer.Services;
 using Iris_MediaPlayer.Services.Jellyfin;
+using Iris_MediaPlayer.Views.Jellyfin;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,40 +14,58 @@ using System.Threading.Tasks;
 namespace Iris_MediaPlayer.Views;
 
 /// <summary>
-/// The Jellyfin page. Not signed in: a card that asks for the server address, then a username and
-/// password (or a Quick Connect code). Signed in: the user's video libraries as tabs, with posters,
-/// and folders, shows and seasons that open in place. Videos play in the normal Iris player.
+/// The Jellyfin section. Not signed in: a card that asks for the server address, then a username and
+/// password (or a Quick Connect code). Signed in: a media center — Home, one tab per video library and
+/// Favorites under a floating bar, with details pages for films and shows. Videos play in the normal
+/// Iris player.
 /// </summary>
 public sealed partial class JellyfinView : UserControl
 {
-    private const int PosterHeight = 420;
-    private const int WideHeight = 300;
     private static readonly TimeSpan QuickConnectPoll = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan QuickConnectTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>One place in the section: Home, a library (null = Favorites), or a details page.</summary>
+    private sealed record Place(string Kind, JellyfinItem? Item);
 
     private JellyfinClient? _client;
     private JellyfinServerInfo? _server;
     private IReadOnlyList<JellyfinItem> _libraries = [];
-    /// <summary>Where you are: the library, then any folder, show or season opened inside it.</summary>
-    private readonly List<JellyfinItem> _path = [];
-    private IReadOnlyList<JellyfinItem> _items = [];
+    private readonly Stack<Place> _history = new();
+    private Place _current = new("Home", null);
     private CancellationTokenSource? _loading;
     private CancellationTokenSource? _quickConnect;
     private bool _hasLoaded;
+    private bool _isActive;
 
     public JellyfinView()
     {
         InitializeComponent();
         JellyfinSession.Changed += () => DispatcherQueue.TryEnqueue(() => _ = ShowCurrentStateAsync());
+
+        HomePage.ItemInvoked += (_, item) => _ = OpenAsync(item);
+        HomePage.DetailsRequested += (_, item) => Navigate(new Place("Details", item));
+        HomePage.PlayRequested += (_, item) => _ = PlayAsync(item);
+        HomePage.LibraryRequested += (_, library) => SelectTab(_libraries.ToList().FindIndex(entry => entry.Id == library.Id) + 1);
+        LibraryPage.ItemInvoked += (_, item) => _ = OpenAsync(item);
+        DetailsPage.PlayRequested += (_, request) => PlayRequested?.Invoke(this, request);
     }
 
     public event EventHandler<PlayRequest>? PlayRequested;
 
-    /// <summary>Called whenever the page is shown. Loads once; Refresh loads again.</summary>
+    /// <summary>Called when the section is shown. Loads once; Refresh loads again.</summary>
     public void Activate()
     {
+        _isActive = true;
+        HomePage.IsActive = BrowseRoot.Visibility == Visibility.Visible && _current.Kind == "Home";
         if (!_hasLoaded)
             _ = ShowCurrentStateAsync();
+    }
+
+    /// <summary>Called when another section is shown, so the hero stops rotating.</summary>
+    public void Deactivate()
+    {
+        _isActive = false;
+        HomePage.IsActive = false;
     }
 
     private async Task ShowCurrentStateAsync()
@@ -60,26 +79,195 @@ public sealed partial class JellyfinView : UserControl
             return;
         }
 
-        ShowBrowsing();
+        SignInRoot.Visibility = Visibility.Collapsed;
+        BrowseRoot.Visibility = Visibility.Visible;
+        ServerNameText.Text = JellyfinSession.ServerName ?? "Jellyfin";
+        SignedInItem.Text = $"Signed in as {JellyfinSession.UserName}";
+        await LoadLibrariesAsync();
+    }
+
+    // ---------- Libraries and navigation ----------
+
+    private async Task LoadLibrariesAsync()
+    {
+        if (_client is null)
+            return;
+        _loading?.Cancel();
+        var cancel = _loading = new CancellationTokenSource();
+        BrowseMessage.Visibility = Visibility.Collapsed;
+        try
+        {
+            _libraries = await _client.GetLibrariesAsync(cancel.Token);
+            if (cancel.IsCancellationRequested)
+                return;
+            Tabs.Items = new[] { "Home" }.Concat(_libraries.Select(library => library.Name)).Append("Favorites").ToList();
+            _history.Clear();
+            Show(new Place("Home", null));
+            await HomePage.LoadAsync(_client, _libraries, cancel.Token);
+        }
+        catch (JellyfinException exception) when (!cancel.IsCancellationRequested)
+        {
+            HomePage.Visibility = Visibility.Collapsed;
+            BrowseMessage.Show("", "Couldn't reach Jellyfin", exception.Message, "Try again");
+            BrowseMessage.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void Tabs_SelectionChanged(object? sender, int index) => SelectTab(index);
+
+    private void SelectTab(int index)
+    {
+        if (index <= 0)
+        {
+            _history.Clear();
+            Show(new Place("Home", null));
+            return;
+        }
+        _history.Clear();
+        var library = index <= _libraries.Count ? _libraries[index - 1] : null;
+        Show(new Place("Library", library));
+    }
+
+    private void Navigate(Place place)
+    {
+        _history.Push(_current);
+        Show(place);
+    }
+
+    private void Back_Click(object sender, RoutedEventArgs e)
+    {
+        if (_history.Count > 0)
+            Show(_history.Pop(), goingBack: true);
+    }
+
+    private void Show(Place place, bool goingBack = false)
+    {
+        if (_client is null)
+            return;
+        _current = place;
+        HomePage.Visibility = place.Kind == "Home" ? Visibility.Visible : Visibility.Collapsed;
+        LibraryPage.Visibility = place.Kind == "Library" ? Visibility.Visible : Visibility.Collapsed;
+        DetailsPage.Visibility = place.Kind == "Details" ? Visibility.Visible : Visibility.Collapsed;
+        HomePage.IsActive = _isActive && place.Kind == "Home";
+        BrowseMessage.Visibility = Visibility.Collapsed;
+
+        // The tabs show which section you're in; details pages keep the tab they were opened from.
+        var tab = place.Kind switch
+        {
+            "Home" => 0,
+            "Library" => place.Item is null ? _libraries.Count + 1 : _libraries.ToList().FindIndex(library => library.Id == place.Item.Id) + 1,
+            _ => Tabs.SelectedIndex
+        };
+        if (tab != Tabs.SelectedIndex)
+            Tabs.SelectedIndex = tab;
+
+        var hasBack = _history.Count > 0;
+        BackButton.Visibility = hasBack ? Visibility.Visible : Visibility.Collapsed;
+        ServerButton.Visibility = hasBack ? Visibility.Collapsed : Visibility.Visible;
+        BackText.Text = hasBack ? _history.Peek() switch
+        {
+            { Kind: "Home" } => "Home",
+            { Kind: "Library", Item: null } => "Favorites",
+            { Kind: "Library", Item: { } library } => library.Name,
+            { Item: { } previous } => previous.Name,
+            _ => "Back"
+        } : "Back";
+
+        switch (place.Kind)
+        {
+            case "Library" when !goingBack || LibraryPage.LibraryId != place.Item?.Id:
+                _ = LibraryPage.ShowAsync(_client, place.Item);
+                break;
+            case "Details" when place.Item is { } item:
+                _ = DetailsPage.ShowAsync(_client, item);
+                break;
+        }
+        if (place.Kind != "Home")
+            Motion.EnterFromBelow(place.Kind == "Library" ? LibraryPage : DetailsPage, TimeSpan.Zero, 10);
+    }
+
+    /// <summary>A card was clicked: films and shows open their page, episodes and videos play.</summary>
+    private async Task OpenAsync(JellyfinItem item)
+    {
+        switch (item.Type)
+        {
+            case "Movie" or "Series":
+                Navigate(new Place("Details", item));
+                break;
+            case "Season" when item.SeriesId is { } seriesId:
+                Navigate(new Place("Details", new JellyfinItem { Id = seriesId, Name = item.SeriesName ?? item.Name, Type = "Series", IsFolder = true }));
+                break;
+            case "BoxSet" or "Folder" or "CollectionFolder":
+                Navigate(new Place("Library", item));
+                break;
+            default:
+                if (item.IsPlayable)
+                    await PlayAsync(item);
+                break;
+        }
+    }
+
+    /// <summary>Plays a film or episode; an episode's queue is the rest of its season.</summary>
+    private async Task PlayAsync(JellyfinItem item)
+    {
+        if (_client is null)
+            return;
+        var queue = new List<MediaItem>();
+        if (item.Type == "Episode" && item.SeriesId is { } seriesId && item.SeasonId is { } seasonId)
+        {
+            try
+            {
+                var season = await _client.GetEpisodesAsync(seriesId, seasonId);
+                JellyfinUi.LoadCardImages(_client, season.Where(entry => entry.Id != item.Id), wide: true);
+                queue = season.Select(entry => JellyfinUi.ToMediaItem(_client, entry.Id == item.Id ? item : entry)).ToList();
+            }
+            catch (JellyfinException)
+            {
+                queue.Clear();
+            }
+        }
+
+        var media = queue.FirstOrDefault(entry => entry.FilePath == JellyfinUi.Key(item)) ?? JellyfinUi.ToMediaItem(_client, item);
+        PlayRequested?.Invoke(this, new PlayRequest(media, queue.Count > 0 ? queue : [media]));
+    }
+
+    private async void Refresh_Click(object sender, RoutedEventArgs e)
+    {
+        switch (_current.Kind)
+        {
+            case "Home" when _client is not null:
+                await HomePage.LoadAsync(_client, _libraries, CancellationToken.None);
+                break;
+            case "Library":
+                await LibraryPage.ReloadAsync();
+                break;
+            case "Details" when _current.Item is { } item && _client is not null:
+                await DetailsPage.ShowAsync(_client, item);
+                break;
+        }
+    }
+
+    private async void SignOut_Click(object sender, RoutedEventArgs e) => await JellyfinSession.SignOutAsync();
+
+    private async void BrowseMessage_ActionClick(object? sender, EventArgs e)
+    {
+        HomePage.Visibility = Visibility.Visible;
         await LoadLibrariesAsync();
     }
 
     // ---------- Connecting and signing in ----------
 
-    private void ShowSignInPanel()
+    private void ShowSignInRoot()
     {
-        SignInPanel.Visibility = Visibility.Visible;
-        BrowsePanel.Visibility = Visibility.Collapsed;
-        BrowseBar.Visibility = Visibility.Collapsed;
-        RefreshButton.Visibility = Visibility.Collapsed;
-        PageTitle.Text = "Jellyfin";
-        PageSummary.Text = "Stream from your Jellyfin server.";
+        SignInRoot.Visibility = Visibility.Visible;
+        BrowseRoot.Visibility = Visibility.Collapsed;
+        HomePage.IsActive = false;
         HideError();
     }
 
     private void ShowAddressStep(string? address = null)
     {
-        ShowSignInPanel();
+        ShowSignInRoot();
         StepTitle.Text = "Connect to your server";
         StepCaption.Text = "Type the address you use to open Jellyfin in a browser.";
         AddressStep.Visibility = Visibility.Visible;
@@ -117,8 +305,7 @@ public sealed partial class JellyfinView : UserControl
             _server = await client.GetServerInfoAsync();
             _client = client;
             AddressBox.Text = client.Address;
-            var quickConnect = await client.IsQuickConnectEnabledAsync();
-            ShowSignInStep(quickConnect);
+            ShowSignInStep(await client.IsQuickConnectEnabledAsync());
         }
         catch (JellyfinException exception)
         {
@@ -250,199 +437,5 @@ public sealed partial class JellyfinView : UserControl
     {
         button.IsEnabled = !busy;
         button.Content = text;
-    }
-
-    // ---------- Browsing ----------
-
-    private void ShowBrowsing()
-    {
-        SignInPanel.Visibility = Visibility.Collapsed;
-        BrowsePanel.Visibility = Visibility.Visible;
-        BrowseBar.Visibility = Visibility.Visible;
-        RefreshButton.Visibility = Visibility.Visible;
-        PageTitle.Text = JellyfinSession.ServerName ?? "Jellyfin";
-        PageSummary.Text = $"Signed in as {JellyfinSession.UserName}";
-    }
-
-    private async Task LoadLibrariesAsync()
-    {
-        if (_client is null)
-            return;
-
-        var cancel = StartLoading();
-        try
-        {
-            _libraries = await _client.GetLibrariesAsync(cancel.Token);
-            if (cancel.IsCancellationRequested)
-                return;
-
-            var selected = _path.Count > 0 ? _path[0].Id : null;
-            LibraryTabs.Items = _libraries.Select(library => library.Name).ToList();
-            if (_libraries.Count == 0)
-            {
-                StopLoading();
-                ShowMessage("", "No video libraries", "This account can't see any movie, show or video libraries on the server.");
-                return;
-            }
-
-            var index = Math.Max(0, _libraries.ToList().FindIndex(library => library.Id == selected));
-            LibraryTabs.SelectedIndex = index;
-            // Keep the folders opened inside the same library; start over otherwise.
-            if (_path.Count == 0 || _path[0].Id != _libraries[index].Id)
-            {
-                _path.Clear();
-                _path.Add(_libraries[index]);
-            }
-            await LoadItemsAsync();
-        }
-        catch (JellyfinException exception) when (!cancel.IsCancellationRequested)
-        {
-            StopLoading();
-            ShowMessage("", "Couldn't reach Jellyfin", exception.Message, "Try again");
-        }
-    }
-
-    private async Task LoadItemsAsync()
-    {
-        if (_client is null || _path.Count == 0)
-            return;
-
-        UpdateBreadcrumb();
-        var cancel = StartLoading();
-        try
-        {
-            var items = await _client.GetChildrenAsync(_path[^1], cancel.Token);
-            if (cancel.IsCancellationRequested)
-                return;
-
-            var wide = items.Count > 0 && items.All(item => item.IsWide);
-            foreach (var item in items)
-            {
-                if (_client.GetImageUrl(item, wide ? WideHeight : PosterHeight) is { } url)
-                    item.Image = new BitmapImage(new Uri(url)) { DecodePixelHeight = wide ? WideHeight : PosterHeight };
-            }
-
-            _items = items;
-            StopLoading();
-            PosterItems.ItemsSource = wide ? null : items;
-            WideItems.ItemsSource = wide ? items : null;
-            PosterItems.Visibility = wide ? Visibility.Collapsed : Visibility.Visible;
-            WideItems.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
-            ItemsScroller.ChangeView(null, 0, null, disableAnimation: true);
-            if (items.Count == 0)
-                ShowMessage("", "Nothing here yet", "This library or folder has no videos.");
-        }
-        catch (JellyfinException exception) when (!cancel.IsCancellationRequested)
-        {
-            StopLoading();
-            ShowMessage("", "Couldn't load this", exception.Message, "Try again");
-        }
-    }
-
-    private CancellationTokenSource StartLoading()
-    {
-        _loading?.Cancel();
-        var cancel = _loading = new CancellationTokenSource();
-        BrowseMessage.Visibility = Visibility.Collapsed;
-        PosterItems.ItemsSource = null;
-        WideItems.ItemsSource = null;
-        LoadingRing.IsActive = true;
-        return cancel;
-    }
-
-    private void StopLoading() => LoadingRing.IsActive = false;
-
-    private void ShowMessage(string glyph, string title, string description, string? action = null)
-    {
-        BrowseMessage.Show(glyph, title, description, action);
-        BrowseMessage.Visibility = Visibility.Visible;
-    }
-
-    private async void BrowseMessage_ActionClick(object? sender, EventArgs e)
-    {
-        if (_libraries.Count == 0)
-            await LoadLibrariesAsync();
-        else
-            await LoadItemsAsync();
-    }
-
-    private async void Refresh_Click(object sender, RoutedEventArgs e) => await LoadLibrariesAsync();
-
-    private async void LibraryTabs_SelectionChanged(object? sender, int index)
-    {
-        if (index < 0 || index >= _libraries.Count)
-            return;
-        _path.Clear();
-        _path.Add(_libraries[index]);
-        await LoadItemsAsync();
-    }
-
-    private void UpdateBreadcrumb()
-    {
-        // The library itself is already the selected tab, so the trail starts below it.
-        Breadcrumb.ItemsSource = _path.Count > 1 ? _path.Select(item => item.Name).ToList() : null;
-    }
-
-    private async void Breadcrumb_ItemClicked(BreadcrumbBar sender, BreadcrumbBarItemClickedEventArgs args)
-    {
-        if (args.Index < 0 || args.Index >= _path.Count - 1)
-            return;
-        _path.RemoveRange(args.Index + 1, _path.Count - args.Index - 1);
-        await LoadItemsAsync();
-    }
-
-    private async void Item_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { Tag: JellyfinItem item })
-            return;
-
-        if (item.IsPlayable)
-        {
-            Play(item);
-            return;
-        }
-
-        _path.Add(item);
-        await LoadItemsAsync();
-    }
-
-    /// <summary>Keeps card pictures in shape: 2:3 posters, 16:9 stills (the ratio is in the art's Tag).</summary>
-    private void Art_SizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        if (sender is FrameworkElement { Tag: string ratioText } art
-            && double.TryParse(ratioText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ratio)
-            && Math.Abs(e.NewSize.Width - e.PreviousSize.Width) > 0.5)
-        {
-            art.Height = Math.Round(e.NewSize.Width * ratio);
-        }
-    }
-
-    // ---------- Playing ----------
-
-    private void Play(JellyfinItem item)
-    {
-        if (_client is null)
-            return;
-
-        // Next and previous move through the videos on this page (a season's episodes, for example).
-        var queue = _items.Where(other => other.IsPlayable).Select(ToMediaItem).ToList();
-        var media = queue.First(entry => entry.FilePath == Key(item));
-        PlayRequested?.Invoke(this, new PlayRequest(media, queue));
-    }
-
-    private string Key(JellyfinItem item) => $"jellyfin://{JellyfinSession.ServerId}/{item.Id}";
-
-    private MediaItem ToMediaItem(JellyfinItem item)
-    {
-        var context = item.Type == "Episode" && item.SeriesName is { } series
-            ? item.SeasonNumber is { } season && item.EpisodeNumber is { } episode ? $"{series}  ·  S{season}:E{episode}" : series
-            : _path.Count > 0 ? _path[^1].Name : JellyfinSession.ServerName ?? "Jellyfin";
-        var extension = "." + (item.Container?.Split(',')[0] ?? "mkv");
-        return new MediaItem(Key(item), item.Name, string.Empty, context, extension, item.DateCreated)
-        {
-            StreamUrl = _client!.GetStreamUrl(item),
-            ServerResumeSeconds = item.ResumeSeconds,
-            Thumbnail = item.Image
-        };
     }
 }

@@ -643,6 +643,7 @@ public sealed partial class PlayerView : UserControl
         SeekForwardButton.IsEnabled = true;
         MuteButton.IsEnabled = true;
         LoadSubtitleButton.IsEnabled = true;
+        ApplyStartTracks();
         RefreshTrackOptions();
         LoadChapters();
         UpdateQueueControls();
@@ -1267,6 +1268,15 @@ public sealed partial class PlayerView : UserControl
     }
 
     // ---------- Tracks ----------
+
+    /// <summary>The audio and subtitle tracks picked before playing (Jellyfin details page).</summary>
+    private void ApplyStartTracks()
+    {
+        if (_currentMedia?.StartAudioTrack is { } audio)
+            TryMpv(mpv => mpv.SetAudioTrack(audio));
+        if (_currentMedia?.StartSubtitleTrack is { } subtitle)
+            TryMpv(mpv => mpv.SetSubtitleTrack(subtitle));
+    }
 
     private void RefreshTrackOptions()
     {

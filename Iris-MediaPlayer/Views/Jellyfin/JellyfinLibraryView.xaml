@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Iris_MediaPlayer.Views.Jellyfin.JellyfinLibraryView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:jf="using:Iris_MediaPlayer.Views.Jellyfin"
+    xmlns:controls="using:Iris_MediaPlayer.Views.Controls">
+
+    <UserControl.Resources>
+        <DataTemplate x:Key="PosterTemplate">
+            <Button Style="{StaticResource IrisCardButtonStyle}" Padding="6" Tag="{Binding}" Click="Card_Click">
+                <jf:JellyfinCard Kind="Poster" />
+            </Button>
+        </DataTemplate>
+        <DataTemplate x:Key="WideTemplate">
+            <Button Style="{StaticResource IrisCardButtonStyle}" Padding="8" Tag="{Binding}" Click="Card_Click">
+                <jf:JellyfinCard Kind="Wide" />
+            </Button>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Title, leaving room above for the Jellyfin bar -->
+        <StackPanel Margin="56,92,40,0" Spacing="6">
+            <TextBlock x:Name="Eyebrow" Style="{StaticResource IrisEyebrowTextStyle}" />
+            <TextBlock x:Name="PageTitle" Style="{StaticResource IrisPageTitleTextStyle}" />
+            <TextBlock x:Name="CountText" Style="{StaticResource IrisBodySecondaryTextStyle}" />
+        </StackPanel>
+
+        <!-- Filters, sort, and where you are inside folders -->
+        <Grid Grid.Row="1" Margin="56,20,40,14" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel x:Name="Filters" Orientation="Horizontal" Spacing="8">
+                <ToggleButton Content="All" Tag="All" Style="{StaticResource IrisChipToggleStyle}" Click="Filter_Click" IsChecked="True" />
+                <ToggleButton Content="Unwatched" Tag="Unwatched" Style="{StaticResource IrisChipToggleStyle}" Click="Filter_Click" />
+                <ToggleButton Content="In progress" Tag="InProgress" Style="{StaticResource IrisChipToggleStyle}" Click="Filter_Click" />
+                <ToggleButton x:Name="FavoritesChip" Content="Favorites" Tag="Favorites" Style="{StaticResource IrisChipToggleStyle}" Click="Filter_Click" />
+            </StackPanel>
+            <BreadcrumbBar x:Name="Breadcrumb" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           ItemClicked="Breadcrumb_ItemClicked" />
+            <Button Grid.Column="2" Style="{StaticResource IrisOutlineButtonStyle}" Height="32" Padding="14,0" FontSize="13" FontWeight="Medium">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock x:Name="SortText" Text="Sort: Name" />
+                    <FontIcon Glyph="&#xE70D;" FontSize="10" />
+                </StackPanel>
+                <Button.Flyout>
+                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                        <RadioMenuFlyoutItem Text="Name" GroupName="Sort" Tag="Name" IsChecked="True" Click="Sort_Click" />
+                        <RadioMenuFlyoutItem Text="Recently added" GroupName="Sort" Tag="DateAdded" Click="Sort_Click" />
+                        <RadioMenuFlyoutItem Text="Release date" GroupName="Sort" Tag="ReleaseDate" Click="Sort_Click" />
+                        <RadioMenuFlyoutItem Text="Rating" GroupName="Sort" Tag="Rating" Click="Sort_Click" />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+        </Grid>
+
+        <Grid Grid.Row="2">
+            <ScrollViewer x:Name="ItemsScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
+                <Grid Padding="48,0,34,32">
+                    <ItemsRepeater x:Name="PosterItems" ItemTemplate="{StaticResource PosterTemplate}" ElementPrepared="Items_ElementPrepared">
+                        <ItemsRepeater.Layout>
+                            <UniformGridLayout MinItemWidth="176" ItemsStretch="Fill" MinColumnSpacing="2" MinRowSpacing="6" />
+                        </ItemsRepeater.Layout>
+                    </ItemsRepeater>
+                    <ItemsRepeater x:Name="WideItems" ItemTemplate="{StaticResource WideTemplate}" ElementPrepared="Items_ElementPrepared"
+                                   Visibility="Collapsed">
+                        <ItemsRepeater.Layout>
+                            <UniformGridLayout MinItemWidth="288" ItemsStretch="Fill" MinColumnSpacing="4" MinRowSpacing="6" />
+                        </ItemsRepeater.Layout>
+                    </ItemsRepeater>
+                </Grid>
+            </ScrollViewer>
+            <ProgressRing x:Name="LoadingRing" Width="36" Height="36" IsActive="False" VerticalAlignment="Top" Margin="0,60,0,0" />
+            <controls:EmptyState x:Name="Message" Visibility="Collapsed" Margin="0,20,0,80" ActionClick="Message_ActionClick" />
+        </Grid>
+    </Grid>
+</UserControl>

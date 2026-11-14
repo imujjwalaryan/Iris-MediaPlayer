@@ -172,6 +172,8 @@ public sealed partial class MainWindow : Window
         LibraryPage.Visibility = section == LibraryPage ? Visibility.Visible : Visibility.Collapsed;
         PlaceholderPage.Visibility = section == PlaceholderPage ? Visibility.Visible : Visibility.Collapsed;
         JellyfinPage.Visibility = section == JellyfinPage ? Visibility.Visible : Visibility.Collapsed;
+        if (section != JellyfinPage)
+            JellyfinPage.Deactivate();
         SettingsPage.Visibility = section == SettingsPage ? Visibility.Visible : Visibility.Collapsed;
         PlayerPage.Visibility = section == PlayerPage ? Visibility.Visible : Visibility.Collapsed;
         TopBar.Visibility = section == HomePage || section == PlaceholderPage ? Visibility.Visible : Visibility.Collapsed;
