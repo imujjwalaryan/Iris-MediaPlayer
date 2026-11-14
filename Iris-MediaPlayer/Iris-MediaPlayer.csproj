@@ -28,7 +28,7 @@
     <Product>Iris</Product>
     <Company>Ryujin Interactive</Company>
     <AssemblyTitle>Iris</AssemblyTitle>
-    <Version>1.0.5</Version>
+    <Version>1.1.0</Version>
   </PropertyGroup>
 
   <!--
