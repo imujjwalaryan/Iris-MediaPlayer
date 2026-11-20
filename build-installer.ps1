@@ -46,8 +46,12 @@ param(
     [string] $Platform = 'x64',
     [switch] $Publish,
     [switch] $UploadOnly,
-    [string] $FromGitHub
+    [string] $FromGitHub,
+    # Don't fetch the published release first: no delta update, but the current version can be
+    # packed again (test builds). Never upload a build made this way.
+    [switch] $SkipPrevious
 )
+if ($SkipPrevious -and $Publish) { throw '-SkipPrevious builds are for testing; they can''t be published.' }
 if ($FromGitHub) { $UploadOnly = $true }
 if ($UploadOnly) { $Publish = $true }
 
@@ -116,7 +120,9 @@ dotnet tool restore | Out-Null
 # Fetch the latest published release so Velopack can make a small delta update from it.
 # (Nothing to fetch before the first release; that's fine.)
 New-Item -ItemType Directory -Force $releasesDir | Out-Null
-dotnet vpk download http --url $updatesUrl --channel $channel --outputDir $releasesDir --allowEmptyChannel 2>&1 | Out-Null
+if (-not $SkipPrevious) {
+    dotnet vpk download http --url $updatesUrl --channel $channel --outputDir $releasesDir --allowEmptyChannel 2>&1 | Out-Null
+}
 
 Write-Host "Packing IrisSetup..." -ForegroundColor Cyan
 # packId decides the install folder (%LocalAppData%\IrisMediaPlayer); it must stay the same forever,

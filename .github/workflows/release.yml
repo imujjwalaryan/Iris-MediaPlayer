@@ -50,7 +50,10 @@ jobs:
 
       - name: Build and pack
         shell: pwsh
-        run: ./build-installer.ps1
+        run: |
+          # Tag builds start from the published release so installed copies get a small delta update.
+          # Manual runs are test builds of the current version, packed on their own.
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { ./build-installer.ps1 } else { ./build-installer.ps1 -SkipPrevious }
 
       # Code signing (SignPath) goes here once the project is approved: sign the app before packing
       # and the setup after it.
