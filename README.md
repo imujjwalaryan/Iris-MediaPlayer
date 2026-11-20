@@ -92,10 +92,20 @@ It's C#, .NET 8 and WinUI 3, with [mpv](https://mpv.io) for playback and
 1. Install Visual Studio with the **WinUI application development** workload.
 2. Open `Iris-MediaPlayer.slnx`, pick `x64` and hit **F5**.
 
+**Making a release**
+
+Releases are built by GitHub Actions from this repository ([release.yml](.github/workflows/release.yml)):
+bump `<Version>` in `Iris-MediaPlayer/Iris-MediaPlayer.csproj`, push a matching tag such as `v1.3.1`,
+and the workflow builds the installer and update packages into a draft GitHub release. You can also
+build them locally with `build-installer.cmd`, which needs Visual Studio's MSBuild.
+
 **What's where**
 
 ```text
 Iris-MediaPlayer/          the app
+.github/workflows/         the release build
+installer/                 setup splash image
+build-installer.cmd        builds the installer locally
 LICENSE                    the GNU GPL v3 that Iris is released under
 THIRD-PARTY-NOTICES.md     licences for the libraries Iris uses
 ```
