@@ -27,6 +27,8 @@ public sealed partial class StashView : UserControl
     private StashClient? _client;
     private readonly Stack<Place> _history = new();
     private Place _current = new("Home");
+    /// <summary>Pages playback has made out of date; each reloads the next time it's shown.</summary>
+    private readonly HashSet<string> _stale = [];
     private bool _isActive;
     private bool _hasLoaded;
 
@@ -151,11 +153,20 @@ public sealed partial class StashView : UserControl
 
         switch (place.Kind)
         {
+            case "Home" when _stale.Remove("Home"):
+                _ = HomePage.LoadAsync(_client, CancellationToken.None);
+                break;
             case "List" when !goingBack || BrowsePage.Kind != place.List || BrowsePage.Scope != place.Scope:
+                _stale.Remove("List");
                 _ = BrowsePage.ShowAsync(_client, place.List, place.Scope);
                 break;
+            case "List" when _stale.Remove("List"):
+                _ = BrowsePage.ReloadAsync();
+                break;
             case "Scene" when place.Scene is { } item:
-                _ = ScenePage.ShowAsync(_client, item);
+                var stale = _stale.Remove("Scene");
+                if (!goingBack || stale)
+                    _ = ScenePage.ShowAsync(_client, item, quiet: goingBack);
                 break;
         }
         if (place.Kind != "Home")
@@ -168,6 +179,9 @@ public sealed partial class StashView : UserControl
         if (_client is null || BrowseRoot.Visibility != Visibility.Visible)
             return;
         await StashPlaybackReporter.WhenSentAsync();
+        // The pages behind this one reload when you go back to them (Continue watching, progress bars).
+        _stale.UnionWith(["Home", "List", "Scene"]);
+        _stale.Remove(_current.Kind);
         await ReloadCurrentAsync(quiet: true);
     }
 

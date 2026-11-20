@@ -65,7 +65,8 @@ public sealed partial class StashBrowseView : UserControl
         return LoadAsync();
     }
 
-    public Task ReloadAsync() => LoadAsync();
+    /// <summary>Loads the list again, as far as it was scrolled, and returns to the same place.</summary>
+    public Task ReloadAsync() => LoadAsync(keepPosition: true);
 
     private void UpdateChrome()
     {
@@ -101,10 +102,12 @@ public sealed partial class StashBrowseView : UserControl
         };
     }
 
-    private async Task LoadAsync()
+    private async Task LoadAsync(bool keepPosition = false)
     {
         if (_client is null)
             return;
+        var pages = keepPosition ? Math.Max(1, _page) : 1;
+        var offset = keepPosition ? ItemsScroller.VerticalOffset : 0;
         _loading?.Cancel();
         var cancel = _loading = new CancellationTokenSource();
         _items.Clear();
@@ -113,12 +116,22 @@ public sealed partial class StashBrowseView : UserControl
         Message.Visibility = Visibility.Collapsed;
         LoadingRing.IsActive = true;
         CountText.Text = string.Empty;
-        ItemsScroller.ChangeView(null, 0, null, disableAnimation: true);
+        if (!keepPosition)
+            ItemsScroller.ChangeView(null, 0, null, disableAnimation: true);
         try
         {
-            await LoadPageAsync(cancel.Token);
+            do
+            {
+                await LoadPageAsync(cancel.Token);
+            }
+            while (!cancel.IsCancellationRequested && _page < pages && _items.Count < _total);
             if (cancel.IsCancellationRequested)
                 return;
+            if (keepPosition)
+            {
+                ItemsScroller.UpdateLayout();
+                ItemsScroller.ChangeView(null, offset, null, disableAnimation: true);
+            }
             CountText.Text = _total == 1 ? "1 result" : $"{_total:N0} {(_kind == StashKind.Scene ? "scenes" : "results")}";
             if (_items.Count == 0)
             {

@@ -32,6 +32,8 @@ public sealed partial class JellyfinView : UserControl
     private IReadOnlyList<JellyfinItem> _libraries = [];
     private readonly Stack<Place> _history = new();
     private Place _current = new("Home", null);
+    /// <summary>Pages playback has made out of date; each reloads the next time it's shown.</summary>
+    private readonly HashSet<string> _stale = [];
     private CancellationTokenSource? _loading;
     private CancellationTokenSource? _quickConnect;
     private bool _hasLoaded;
@@ -174,11 +176,20 @@ public sealed partial class JellyfinView : UserControl
 
         switch (place.Kind)
         {
+            case "Home" when _stale.Remove("Home"):
+                _ = HomePage.LoadAsync(_client, _libraries, CancellationToken.None);
+                break;
             case "Library" when !goingBack || LibraryPage.LibraryId != place.Item?.Id:
+                _stale.Remove("Library");
                 _ = LibraryPage.ShowAsync(_client, place.Item);
                 break;
+            case "Library" when _stale.Remove("Library"):
+                _ = LibraryPage.ReloadAsync();
+                break;
             case "Details" when place.Item is { } item:
-                _ = DetailsPage.ShowAsync(_client, item);
+                var stale = _stale.Remove("Details");
+                if (!goingBack || stale)
+                    _ = DetailsPage.ShowAsync(_client, item, quiet: goingBack);
                 break;
         }
         if (place.Kind != "Home")
@@ -239,6 +250,9 @@ public sealed partial class JellyfinView : UserControl
         if (_client is null || BrowseRoot.Visibility != Visibility.Visible)
             return;
         await JellyfinPlaybackReporter.WhenSentAsync();
+        // The pages behind this one reload when you go back to them (Continue watching, progress bars).
+        _stale.UnionWith(["Home", "Library", "Details"]);
+        _stale.Remove(_current.Kind);
         switch (_current.Kind)
         {
             case "Home":
