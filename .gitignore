@@ -47,3 +47,11 @@ artifacts/
 
 # Cloudflare R2 credentials for build-installer.ps1 -Publish
 r2.local.json
+
+# Release tooling stays on the release machine, not in the repository
+build-installer.cmd
+build-installer.ps1
+dotnet-tools.json
+installer/
+Iris-MediaPlayer/Properties/PublishProfiles/
+r2.local.json
