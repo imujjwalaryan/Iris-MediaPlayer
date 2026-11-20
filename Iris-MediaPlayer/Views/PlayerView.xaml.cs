@@ -1674,6 +1674,25 @@ public sealed partial class PlayerView : UserControl
         e.Handled = true;
     }
 
+    private void RestoreKeyboardFocus()
+    {
+        if (Visibility != Visibility.Visible || XamlRoot is null)
+            return;
+        if (FocusManager.GetFocusedElement(XamlRoot) is DependencyObject focused && IsInsidePlayer(focused))
+            return;
+        Focus(FocusState.Programmatic);
+    }
+
+    private bool IsInsidePlayer(DependencyObject element)
+    {
+        for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, this))
+                return true;
+        }
+        return false;
+    }
+
     private void Player_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (Visibility != Visibility.Visible || IsModifierDown(VirtualKey.Control) || IsModifierDown(VirtualKey.Menu))
@@ -1827,7 +1846,13 @@ public sealed partial class PlayerView : UserControl
     public void SetWindowActive(bool active)
     {
         if (active)
+        {
+            // Windows doesn't hand keyboard focus back to the player when the window is reactivated,
+            // so the shortcuts went dead until the video was clicked. Take it back, unless focus is
+            // already somewhere inside the player (the settings sheet, for example).
+            DispatcherQueue.TryEnqueue(RestoreKeyboardFocus);
             return;
+        }
         _isPointerOverBars = false;
         _isPointerInside = false;
         SetCursorHidden(false);
