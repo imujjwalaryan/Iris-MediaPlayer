@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Iris_MediaPlayer.Views.Stash.StashHomeView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:jf="using:Iris_MediaPlayer.Views.Jellyfin">
+
+    <UserControl.Resources>
+        <DataTemplate x:Key="WideTemplate">
+            <Button Style="{StaticResource IrisCardButtonStyle}" Width="296" Padding="8" Tag="{Binding}" Click="Card_Click">
+                <jf:JellyfinCard Kind="Wide" />
+            </Button>
+        </DataTemplate>
+        <DataTemplate x:Key="PosterTemplate">
+            <Button Style="{StaticResource IrisCardButtonStyle}" Width="168" Padding="6" Tag="{Binding}" Click="Card_Click">
+                <jf:JellyfinCard Kind="Poster" />
+            </Button>
+        </DataTemplate>
+        <DataTemplate x:Key="LogoTemplate">
+            <Button Style="{StaticResource IrisCardButtonStyle}" Width="240" Padding="8" Tag="{Binding}" Click="Card_Click">
+                <jf:JellyfinCard Kind="Logo" />
+            </Button>
+        </DataTemplate>
+        <Color x:Key="HeroFade">#FF09090B</Color>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
+        <StackPanel Padding="0,0,0,40">
+            <Grid x:Name="Hero" Height="560" SizeChanged="Hero_SizeChanged">
+                <Grid x:Name="BackdropLayerA">
+                    <Image x:Name="BackdropImageA" Stretch="UniformToFill" SizeChanged="Backdrop_SizeChanged" />
+                </Grid>
+                <Grid x:Name="BackdropLayerB">
+                    <Image x:Name="BackdropImageB" Stretch="UniformToFill" SizeChanged="Backdrop_SizeChanged" />
+                </Grid>
+                <Border IsHitTestVisible="False">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Color="#F209090B" Offset="0" />
+                            <GradientStop Color="#B809090B" Offset="0.36" />
+                            <GradientStop Color="#2609090B" Offset="0.7" />
+                            <GradientStop Color="#0009090B" Offset="1" />
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+                <Border IsHitTestVisible="False">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#9909090B" Offset="0" />
+                            <GradientStop Color="#0009090B" Offset="0.2" />
+                            <GradientStop Color="#0009090B" Offset="0.58" />
+                            <GradientStop Color="{StaticResource HeroFade}" Offset="1" />
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+
+                <StackPanel x:Name="HeroText" VerticalAlignment="Bottom" HorizontalAlignment="Left" MaxWidth="660"
+                            Margin="56,0,32,72" Spacing="14">
+                    <TextBlock x:Name="HeroEyebrow" Style="{StaticResource IrisEyebrowTextStyle}" />
+                    <TextBlock x:Name="HeroTitle" Style="{StaticResource IrisDisplayTextStyle}" TextWrapping="Wrap" MaxLines="2"
+                               TextTrimming="CharacterEllipsis" />
+                    <StackPanel x:Name="HeroMeta" Orientation="Horizontal" Spacing="12" />
+                    <TextBlock x:Name="HeroPeople" FontSize="14" TextTrimming="CharacterEllipsis" Foreground="{StaticResource IrisTextMutedBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,6,0,0">
+                        <Button Style="{StaticResource IrisPrimaryButtonStyle}" Click="HeroPlay_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <FontIcon Glyph="&#xF5B0;" FontSize="14" />
+                                <TextBlock x:Name="HeroPlayText" Text="Play" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource IrisGhostButtonStyle}" Click="HeroMore_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <FontIcon Glyph="&#xE946;" FontSize="15" />
+                                <TextBlock Text="More info" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                    <StackPanel x:Name="HeroProgressPanel" Orientation="Horizontal" Spacing="12">
+                        <Grid Width="240" Height="4" CornerRadius="2" VerticalAlignment="Center" Background="#29FFFFFF">
+                            <Border x:Name="HeroProgressFill" HorizontalAlignment="Left" CornerRadius="2" Background="{StaticResource IrisAccentBrush}" />
+                        </Grid>
+                        <TextBlock x:Name="HeroRemaining" FontSize="13" VerticalAlignment="Center" Foreground="{StaticResource IrisTextSecondaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel x:Name="HeroDots" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                            Margin="0,0,40,84" />
+            </Grid>
+
+            <StackPanel x:Name="Rows" Spacing="26" Margin="0,-44,0,0" />
+            <ProgressRing x:Name="LoadingRing" Width="36" Height="36" Margin="0,40,0,0" IsActive="False" />
+            <TextBlock x:Name="ErrorText" Margin="56,24,40,0" TextWrapping="Wrap" Visibility="Collapsed"
+                       Foreground="{StaticResource IrisTextSecondaryBrush}" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

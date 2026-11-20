@@ -76,7 +76,7 @@
                     <FontIcon Glyph="&#xE8B2;" FontSize="20" />
                 </Button>
                 <Button x:Name="JellyfinRailButton" Style="{StaticResource IrisRailButtonStyle}" Click="RailButton_Click"
-                        Tag="Jellyfin" ToolTipService.ToolTip="Jellyfin" AutomationProperties.Name="Jellyfin">
+                        Tag="Jellyfin" ToolTipService.ToolTip="Media servers" AutomationProperties.Name="Media servers">
                     <FontIcon Glyph="&#xE774;" FontSize="20" />
                 </Button>
             </StackPanel>
@@ -97,7 +97,7 @@
                 <views:HomeView x:Name="HomePage" />
                 <views:LibraryView x:Name="LibraryPage" Visibility="Collapsed" />
                 <views:PlaceholderView x:Name="PlaceholderPage" Visibility="Collapsed" />
-                <views:JellyfinView x:Name="JellyfinPage" Visibility="Collapsed" />
+                <views:ServersView x:Name="ServersPage" Visibility="Collapsed" />
                 <views:SettingsView x:Name="SettingsPage" Visibility="Collapsed" />
 
                 <!-- Floating search and Open file, over Home's artwork. -->

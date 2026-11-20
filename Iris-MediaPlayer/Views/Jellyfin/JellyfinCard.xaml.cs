@@ -1,5 +1,5 @@
+using Iris_MediaPlayer.Models;
 using Iris_MediaPlayer.Services;
-using Iris_MediaPlayer.Services.Jellyfin;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -9,29 +9,31 @@ using System.ComponentModel;
 namespace Iris_MediaPlayer.Views.Jellyfin;
 
 /// <summary>
-/// The card for a Jellyfin item, in two shapes: "Poster" (2:3) and "Wide" (16:9). It follows its
-/// item's changes (watched, progress, picture) and zooms its artwork on hover like the local cards.
+/// The card for a media-server item (Jellyfin, Stash), in three shapes: "Poster" (2:3), "Wide" (16:9)
+/// and "Logo" (16:9, picture fitted rather than cropped, for studio logos). It follows its item's
+/// changes (watched, progress, picture) and zooms its artwork on hover like the local cards.
 /// </summary>
 public sealed partial class JellyfinCard : UserControl
 {
     private static readonly TimeSpan ArtworkZoomDuration = TimeSpan.FromMilliseconds(600);
-    private JellyfinItem? _item;
+    private IMediaCardItem? _item;
 
     public JellyfinCard()
     {
         InitializeComponent();
         Motion.SetOpacity(PlayHint, 0);
         Loaded += (_, _) => Motion.SetScale(PlayHintButton, 0.8f);
-        DataContextChanged += (_, _) => Attach(DataContext as JellyfinItem);
+        DataContextChanged += (_, _) => Attach(DataContext as IMediaCardItem);
         Unloaded += (_, _) => Attach(null);
     }
 
-    /// <summary>"Poster" (default) or "Wide".</summary>
+    /// <summary>"Poster" (default), "Wide" or "Logo".</summary>
     public string Kind { get; set; } = "Poster";
 
-    private bool IsWide => string.Equals(Kind, "Wide", StringComparison.OrdinalIgnoreCase);
+    private bool IsLogo => string.Equals(Kind, "Logo", StringComparison.OrdinalIgnoreCase);
+    private bool IsWide => IsLogo || string.Equals(Kind, "Wide", StringComparison.OrdinalIgnoreCase);
 
-    private void Attach(JellyfinItem? item)
+    private void Attach(IMediaCardItem? item)
     {
         if (_item is not null)
             _item.PropertyChanged -= Item_PropertyChanged;
@@ -49,6 +51,8 @@ public sealed partial class JellyfinCard : UserControl
             return;
 
         ArtImage.Source = item.Image;
+        ArtImage.Stretch = IsLogo ? Microsoft.UI.Xaml.Media.Stretch.Uniform : Microsoft.UI.Xaml.Media.Stretch.UniformToFill;
+        ArtImage.Margin = IsLogo ? new Thickness(24, 18, 24, 18) : new Thickness(0);
         PlaceholderGlyph.Glyph = item.Glyph;
         TitleText.Text = IsWide ? item.RowTitle : item.DisplayName;
         CaptionText.Text = IsWide ? item.RowCaption : item.Caption;

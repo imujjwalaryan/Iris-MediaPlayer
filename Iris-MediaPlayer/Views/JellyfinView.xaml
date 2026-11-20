@@ -37,24 +37,7 @@
                         <FontIcon Glyph="&#xE70D;" FontSize="10" VerticalAlignment="Center" />
                     </StackPanel>
                     <Button.Flyout>
-                        <MenuFlyout Placement="BottomEdgeAlignedLeft">
-                            <MenuFlyoutItem x:Name="SignedInItem" IsEnabled="False">
-                                <MenuFlyoutItem.Icon>
-                                    <FontIcon Glyph="&#xE77B;" />
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                            <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Text="Refresh" Click="Refresh_Click">
-                                <MenuFlyoutItem.Icon>
-                                    <FontIcon Glyph="&#xE72C;" />
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                            <MenuFlyoutItem Text="Sign out" Click="SignOut_Click">
-                                <MenuFlyoutItem.Icon>
-                                    <FontIcon Glyph="&#xF3B1;" />
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                        </MenuFlyout>
+                        <MenuFlyout x:Name="ServerMenuFlyout" Placement="BottomEdgeAlignedLeft" Opening="ServerMenu_Opening" />
                     </Button.Flyout>
                 </Button>
 
@@ -105,6 +88,8 @@
                                      CornerRadius="10" KeyDown="AddressBox_KeyDown" IsSpellCheckEnabled="False" />
                             <Button x:Name="ConnectButton" Style="{StaticResource IrisPrimaryButtonStyle}" HorizontalAlignment="Stretch"
                                     Content="Connect" Click="Connect_Click" />
+                            <HyperlinkButton x:Name="CancelAddButton" Content="Cancel" HorizontalAlignment="Center" Click="CancelAdd_Click"
+                                             Visibility="Collapsed" />
                         </StackPanel>
 
                         <StackPanel x:Name="SignInStep" Spacing="14" Visibility="Collapsed">

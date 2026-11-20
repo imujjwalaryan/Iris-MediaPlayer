@@ -1,5 +1,6 @@
 using Iris_MediaPlayer.Services;
 using Iris_MediaPlayer.Services.Jellyfin;
+using Iris_MediaPlayer.Services.Stash;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -55,6 +56,7 @@ public sealed partial class SettingsView : UserControl
         Build();
         store.LibraryChanged += RebuildFolderList;
         JellyfinSession.Changed += () => DispatcherQueue.TryEnqueue(RebuildJellyfinRows);
+        StashSession.Changed += () => DispatcherQueue.TryEnqueue(RebuildJellyfinRows);
     }
 
     // ---------- Page ----------
@@ -75,7 +77,7 @@ public sealed partial class SettingsView : UserControl
                 _store?.ApplyWatchSetting();
             }));
 
-        BeginSection("Jellyfin");
+        BeginSection("Media servers");
         _jellyfinRows = new StackPanel();
         _currentGroup!.Children.Add(_jellyfinRows);
         RebuildJellyfinRows();
@@ -175,27 +177,48 @@ public sealed partial class SettingsView : UserControl
         {
             if (!JellyfinSession.IsSignedIn)
             {
-                AddRow("Server", "Not connected. Connect to stream films and shows from your Jellyfin server.",
-                    ButtonControl("Connect", true, _ =>
+                AddRow("Jellyfin", "Not connected. Stream films and shows from your Jellyfin server.",
+                    ButtonControl("Connect", true, _ => OpenServer(MediaServerKind.Jellyfin)));
+            }
+            else
+            {
+                AddRow($"Jellyfin · {JellyfinSession.ServerName ?? "Jellyfin"}", $"{JellyfinSession.Address} · signed in as {JellyfinSession.UserName}",
+                    ButtonControl("Sign out", false, async button =>
                     {
-                        OpenJellyfinRequested?.Invoke(this, EventArgs.Empty);
-                        return Task.CompletedTask;
+                        button.IsEnabled = false;
+                        await JellyfinSession.SignOutAsync();
                     }));
-                return;
             }
 
-            AddRow("Server", JellyfinSession.Address, ValueText(JellyfinSession.ServerName ?? "Jellyfin"));
-            AddRow($"Signed in as {JellyfinSession.UserName}", "Your sign-in is kept in Windows Credential Manager.",
-                ButtonControl("Sign out", false, async button =>
-                {
-                    button.IsEnabled = false;
-                    await JellyfinSession.SignOutAsync();
-                }));
+            if (!StashSession.IsConnected)
+            {
+                AddRow("Stash", "Not connected. Browse and play your Stash library.",
+                    ButtonControl("Connect", true, _ => OpenServer(MediaServerKind.Stash)));
+            }
+            else
+            {
+                AddRow($"Stash · {StashSession.ServerName}", StashSession.Address,
+                    ButtonControl("Disconnect", false, _ =>
+                    {
+                        StashSession.Disconnect();
+                        return Task.CompletedTask;
+                    }));
+            }
+
+            AddRow("Plex", "Coming in a later version.", null);
         }
         finally
         {
             _currentGroup = group;
         }
+    }
+
+    /// <summary>Opens the media-servers section on the connect screen for <paramref name="kind"/>.</summary>
+    private Task OpenServer(MediaServerKind kind)
+    {
+        OpenJellyfinRequested?.Invoke(this, EventArgs.Empty);
+        MediaServers.RequestAdd(kind);
+        return Task.CompletedTask;
     }
 
     private void RebuildFolderList()

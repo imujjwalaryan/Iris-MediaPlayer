@@ -55,7 +55,7 @@ public sealed partial class MainWindow : Window
         LibraryPage.PlayRequested += (_, request) => StartPlayback(request);
         LibraryPage.AddFolderRequested += (_, _) => PickAndAddFolder();
 
-        JellyfinPage.PlayRequested += (_, request) => StartPlayback(request);
+        ServersPage.PlayRequested += (_, request) => StartPlayback(request);
 
         SettingsPage.Initialize(_store, _updater);
         SettingsPage.AddFolderRequested += (_, _) => PickAndAddFolder();
@@ -124,8 +124,8 @@ public sealed partial class MainWindow : Window
     private void ShowJellyfin()
     {
         SelectRail(JellyfinRailButton);
-        ShowSection(JellyfinPage);
-        JellyfinPage.Activate();
+        ShowSection(ServersPage);
+        ServersPage.Activate();
     }
 
     private void ShowPlaceholder(string glyph, string title, string description)
@@ -171,9 +171,9 @@ public sealed partial class MainWindow : Window
         HomePage.Visibility = section == HomePage ? Visibility.Visible : Visibility.Collapsed;
         LibraryPage.Visibility = section == LibraryPage ? Visibility.Visible : Visibility.Collapsed;
         PlaceholderPage.Visibility = section == PlaceholderPage ? Visibility.Visible : Visibility.Collapsed;
-        JellyfinPage.Visibility = section == JellyfinPage ? Visibility.Visible : Visibility.Collapsed;
-        if (section != JellyfinPage)
-            JellyfinPage.Deactivate();
+        ServersPage.Visibility = section == ServersPage ? Visibility.Visible : Visibility.Collapsed;
+        if (section != ServersPage)
+            ServersPage.Deactivate();
         SettingsPage.Visibility = section == SettingsPage ? Visibility.Visible : Visibility.Collapsed;
         PlayerPage.Visibility = section == PlayerPage ? Visibility.Visible : Visibility.Collapsed;
         TopBar.Visibility = section == HomePage || section == PlaceholderPage ? Visibility.Visible : Visibility.Collapsed;
@@ -370,7 +370,7 @@ public sealed partial class MainWindow : Window
         {
             (_sectionBeforePlayer, _railBeforePlayer) =
                 LibraryPage.Visibility == Visibility.Visible ? ((UIElement)LibraryPage, LibraryRailButton)
-                : JellyfinPage.Visibility == Visibility.Visible ? (JellyfinPage, JellyfinRailButton)
+                : ServersPage.Visibility == Visibility.Visible ? (ServersPage, JellyfinRailButton)
                 : (HomePage, HomeRailButton);
         }
 
@@ -384,10 +384,10 @@ public sealed partial class MainWindow : Window
         // ShowSection leaves player mode: fullscreen, mini player and playback all stop there.
         ShowSection(_sectionBeforePlayer);
         SelectRail(_railBeforePlayer ?? HomeRailButton, animate: false);
-        if (_sectionBeforePlayer == JellyfinPage)
+        if (_sectionBeforePlayer == ServersPage)
         {
-            JellyfinPage.Activate();
-            JellyfinPage.RefreshAfterPlayback();
+            ServersPage.Activate();
+            ServersPage.RefreshAfterPlayback();
         }
     }
 

@@ -328,6 +328,11 @@ public sealed partial class PlayerView : UserControl
         var resumeMode = PlayerSettings.Resume;
         _resumedFrom = resumeMode == ResumeMode.Always ? savedPosition : 0;
         _offeredResumeAt = resumeMode == ResumeMode.Ask ? savedPosition : 0;
+        if (_currentMedia.StartAtSeconds is { } startAt)
+        {
+            _resumedFrom = startAt;
+            _offeredResumeAt = 0;
+        }
 
         _isFileLoaded = false;
         _isAtEnd = false;

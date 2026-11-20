@@ -82,7 +82,6 @@ public sealed partial class JellyfinView : UserControl
         SignInRoot.Visibility = Visibility.Collapsed;
         BrowseRoot.Visibility = Visibility.Visible;
         ServerNameText.Text = JellyfinSession.ServerName ?? "Jellyfin";
-        SignedInItem.Text = $"Signed in as {JellyfinSession.UserName}";
         await LoadLibrariesAsync();
     }
 
@@ -270,7 +269,9 @@ public sealed partial class JellyfinView : UserControl
         }
     }
 
-    private async void SignOut_Click(object sender, RoutedEventArgs e) => await JellyfinSession.SignOutAsync();
+    private void ServerMenu_Opening(object? sender, object e)
+        => Servers.ServerMenu.Fill(ServerMenuFlyout, MediaServerKind.Jellyfin, $"Signed in as {JellyfinSession.UserName}",
+            () => Refresh_Click(this, new RoutedEventArgs()), JellyfinSession.SignOutAsync);
 
     private async void BrowseMessage_ActionClick(object? sender, EventArgs e)
     {
@@ -298,8 +299,12 @@ public sealed partial class JellyfinView : UserControl
         QuickConnectStep.Visibility = Visibility.Collapsed;
         if (!string.IsNullOrEmpty(address))
             AddressBox.Text = address;
+        // While another server is connected, Cancel goes back to it.
+        CancelAddButton.Visibility = MediaServers.IsConnected(MediaServerKind.Stash) ? Visibility.Visible : Visibility.Collapsed;
         AddressBox.Focus(FocusState.Programmatic);
     }
+
+    private void CancelAdd_Click(object sender, RoutedEventArgs e) => MediaServers.RequestAdd(MediaServerKind.None);
 
     private async void Connect_Click(object sender, RoutedEventArgs e) => await ConnectAsync();
 

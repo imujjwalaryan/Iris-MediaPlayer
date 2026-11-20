@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Iris_MediaPlayer.Views.ServersView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:Iris_MediaPlayer.Views"
+    xmlns:stash="using:Iris_MediaPlayer.Views.Stash">
+
+    <UserControl.Resources>
+        <Style x:Key="ServerCardStyle" TargetType="Button" BasedOn="{StaticResource IrisSurfaceCardButtonStyle}">
+            <Setter Property="Width" Value="260" />
+            <Setter Property="Padding" Value="24,22" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <views:JellyfinView x:Name="JellyfinPage" Visibility="Collapsed" />
+        <stash:StashView x:Name="StashPage" Visibility="Collapsed" />
+
+        <!-- No server yet: pick one to add. -->
+        <ScrollViewer x:Name="Chooser" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="48,32,40,40" Spacing="28">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Media servers" Style="{StaticResource IrisPageTitleTextStyle}" />
+                    <TextBlock Text="Connect a server to browse and stream its library in Iris." Style="{StaticResource IrisBodySecondaryTextStyle}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <Button Style="{StaticResource ServerCardStyle}" Tag="Jellyfin" Click="AddServer_Click">
+                        <StackPanel Spacing="14">
+                            <Border Width="48" Height="48" CornerRadius="14" HorizontalAlignment="Left">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#FFAA5CC3" Offset="0" />
+                                        <GradientStop Color="#FF00A4DC" Offset="1" />
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                                <FontIcon Glyph="&#xE774;" FontSize="20" Foreground="White" />
+                            </Border>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Jellyfin" FontSize="17" FontWeight="SemiBold" />
+                                <TextBlock Text="Films and shows with posters, cast and seasons." TextWrapping="Wrap"
+                                           Style="{StaticResource IrisCaptionTextStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource ServerCardStyle}" Tag="Stash" Click="AddServer_Click">
+                        <StackPanel Spacing="14">
+                            <Border Width="48" Height="48" CornerRadius="14" HorizontalAlignment="Left">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#FF4A5BD6" Offset="0" />
+                                        <GradientStop Color="#FF2B2F45" Offset="1" />
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                                <FontIcon Glyph="&#xE8F1;" FontSize="20" Foreground="White" />
+                            </Border>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Stash" FontSize="17" FontWeight="SemiBold" />
+                                <TextBlock Text="Scenes, performers, studios and tags." TextWrapping="Wrap"
+                                           Style="{StaticResource IrisCaptionTextStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource ServerCardStyle}" IsEnabled="False" Opacity="0.55">
+                        <StackPanel Spacing="14">
+                            <Border Width="48" Height="48" CornerRadius="14" HorizontalAlignment="Left" Background="#FFE5A00D">
+                                <FontIcon Glyph="&#xE768;" FontSize="20" Foreground="#FF1F1F1F" />
+                            </Border>
+                            <StackPanel Spacing="4">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="Plex" FontSize="17" FontWeight="SemiBold" />
+                                    <Border Padding="7,2" CornerRadius="9" Background="{StaticResource IrisAccentSoftBrush}" VerticalAlignment="Center">
+                                        <TextBlock Text="Coming soon" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource IrisAccentLightBrush}" />
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Text="Your Plex libraries, in a later version." TextWrapping="Wrap"
+                                           Style="{StaticResource IrisCaptionTextStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

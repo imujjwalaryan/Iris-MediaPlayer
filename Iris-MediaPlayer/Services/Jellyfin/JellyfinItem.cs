@@ -10,7 +10,7 @@ using System.Runtime.CompilerServices;
 namespace Iris_MediaPlayer.Services.Jellyfin;
 
 /// <summary>A library, folder, collection, film, show, season or episode on a Jellyfin server.</summary>
-public sealed class JellyfinItem : INotifyPropertyChanged
+public sealed class JellyfinItem : Iris_MediaPlayer.Models.IMediaCardItem
 {
     public required string Id { get; init; }
     public required string Name { get; init; }

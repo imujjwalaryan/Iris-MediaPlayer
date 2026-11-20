@@ -29,6 +29,9 @@ public sealed record MediaItem(
     /// <summary>mpv subtitle track to start with; -1 starts with subtitles off, null keeps mpv's choice.</summary>
     public long? StartSubtitleTrack { get; init; }
 
+    /// <summary>Start here whatever the resume setting says (a Stash marker, for example).</summary>
+    public double? StartAtSeconds { get; init; }
+
     /// <summary>For server videos: reports playback back to the server (resume point, watched).</summary>
     public IRemotePlayback? Remote { get; init; }
 
