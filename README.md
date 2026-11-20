@@ -96,5 +96,14 @@ It's C#, .NET 8 and WinUI 3, with [mpv](https://mpv.io) for playback and
 
 ```text
 Iris-MediaPlayer/          the app
+LICENSE                    the GNU GPL v3 that Iris is released under
 THIRD-PARTY-NOTICES.md     licences for the libraries Iris uses
 ```
+
+## Licence
+
+Iris is free software, released under the [GNU General Public License v3.0](LICENSE). You can use it,
+change it and share it, including commercially, as long as anything you distribute that's built from
+Iris is also released under the GPL with its source code. Copyright © 2026 Ryujin Interactive.
+
+The libraries Iris uses keep their own licences; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
